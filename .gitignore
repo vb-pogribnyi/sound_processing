@@ -1,2 +1,7 @@
 *.o
+*.pyc
+*.png
+*.jpg
+*.jpeg
+kwave/bin/*
 
