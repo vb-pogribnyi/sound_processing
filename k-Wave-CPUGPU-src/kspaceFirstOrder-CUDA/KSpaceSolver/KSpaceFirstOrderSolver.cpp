@@ -1566,8 +1566,8 @@ void KSpaceFirstOrderSolver::addPressureSource()
 
   size_t timeIndex = mParameters.getTimeIndex();
 
-  if (mParameters.getPressureSourceFlag() > timeIndex)
-  {
+  //if (mParameters.getPressureSourceFlag() > timeIndex)
+  //{
     if (mParameters.getPressureSourceMode() != Parameters::SourceMode::kAdditive)
     { // Executed Dirichlet and AdditiveNoCorrection source
       SolverKernels::addPressureSource(mMatrixContainer);
@@ -1584,7 +1584,7 @@ void KSpaceFirstOrderSolver::addPressureSource()
       // Insert source
       SolverKernels::addPressureScaledSource(scaledSource);
     }// Additive source
-  }// apply source
+  //}// apply source
 }// end of AddPressureSource
 //----------------------------------------------------------------------------------------------------------------------
 

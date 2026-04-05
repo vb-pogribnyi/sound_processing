@@ -1886,13 +1886,14 @@ insertSourceIntoScalingMatrix(RealMatrix&        scaledSource,
   }
   else
   { // Single signal
+      size_t periodic_time_index = Parameters::getInstance().getTimeIndex() % Parameters::getInstance().getPressureSourceFlag();
     cudaInsertSourceIntoScalingMatrix<true>
                                      <<<gridSize,getSolverBlockSize1D()>>>
                                      (scaledSource.getDeviceData(),
                                       sourceInput.getDeviceData(),
                                       sourceIndex.getDeviceData(),
                                       sourceIndex.size(),
-                                      Parameters::getInstance().getTimeIndex());
+                                      periodic_time_index);
   }
 
   // Check for errors
