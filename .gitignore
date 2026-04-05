@@ -3,5 +3,11 @@
 *.png
 *.jpg
 *.jpeg
+*.npy
+*.h5
+processing
+outputs
+slices
+input_mesh
 kwave/bin/*
 

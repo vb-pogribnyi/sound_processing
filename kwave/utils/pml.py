@@ -4,16 +4,7 @@ from kwave.utils.math import largest_prime_factor
 
 
 def get_pml(
-    Nx: int,
-    dx: float,
-    dt: float,
-    c: float,
-    pml_size: int,
-    pml_alpha: float,
-    staggered: bool,
-    dimension: int,
-    axisymmetric: bool = False,
-    xp=None,
+    Nx: int, dx: float, dt: float, c: float, pml_size: int, pml_alpha: float, staggered: bool, dimension: int, axisymmetric: bool = False
 ) -> np.ndarray:
     """
     Returns a 1D perfectly matched layer variable based on the given size and absorption coefficient.
@@ -36,11 +27,10 @@ def get_pml(
     Returns:
         A 1D numpy array representing the PML variable.
     """
-    if xp is None:
-        xp = np
+    # define x-axis
     Nx = int(Nx)
     pml_size = int(pml_size)
-    x = xp.arange(1, pml_size + 1, dtype=float)
+    x = np.arange(1, pml_size + 1)
 
     # create absorption profile
     if staggered:
@@ -50,17 +40,19 @@ def get_pml(
         pml_left = pml_alpha * (c / dx) * (((x - pml_size - 1) / (0 - pml_size)) ** 4)
         pml_right = pml_alpha * (c / dx) * ((x / pml_size) ** 4)
 
-    pml_left = xp.exp(-pml_left * dt / 2)
-    pml_right = xp.exp(-pml_right * dt / 2)
-    pml = xp.ones((1, Nx))
+    # exponentiate and add the components of the pml to the total function
+    pml_left = np.exp(-pml_left * dt / 2)
+    pml_right = np.exp(-pml_right * dt / 2)
+    pml = np.ones((1, Nx))
     if not axisymmetric:
         pml[:, :pml_size] = pml_left
     pml[:, Nx - pml_size :] = pml_right
 
+    # reshape the pml vector to be in the desired direction
     if dimension == 1:
         pml = pml.T
     elif dimension == 3:
-        pml = xp.reshape(pml, (1, 1, Nx))
+        pml = np.reshape(pml, (1, 1, Nx))
     return pml
     # ------------
     # Other forms:

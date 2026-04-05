@@ -1,0 +1,10 @@
+- Cylindrical space
+- Each radial point samples a plane, a result or adaptation of a single airfoil CFD or approximation.
+- Horizontal axis of the plane translates to time point in the cylinder.
+- The plane is rotating
+
+
+- A mesh, as a np array. XxYxZxT dimensions.
+- SourceDrawer, with defined coordinates, RPM, number of blades, link to PlaneReader.
+- PlaneReader, having links to N planes. Takes float coordinates from 0 to 1 in both vertical and horizontal axis.
+- Visualizer, for every Z plane.

@@ -13,12 +13,6 @@ logger = getLogger(__name__)
 class SimulationExecutionOptions:
     """
     A class to manage and configure the execution options for k-Wave simulations.
-
-    Attributes:
-        backend: Execution backend to use. Options:
-            - "OMP": C++ OpenMP binary (default for CPU)
-            - "CUDA": C++ CUDA binary (default for GPU)
-            - "python": Pure Python/CuPy solver (no external binaries required)
     """
 
     def __init__(
@@ -39,10 +33,9 @@ class SimulationExecutionOptions:
         checkpoint_interval: Optional[int] = None,  # [seconds]
         checkpoint_timesteps: Optional[int] = None,  # [timestep integer]
         checkpoint_file: Optional[Path | str] = None,  # [path to hdf5 file]
-        backend: Optional[str] = None,  # "OMP", "CUDA", or "python"
+        input_file: Optional[Path | str] = None,  # [path to hdf5 file]
+        output_file: Optional[Path | str] = None,  # [path to hdf5 file]
     ):
-        self._num_threads_explicit = num_threads is not None
-        self.backend = backend
         self.is_gpu_simulation = is_gpu_simulation
         self._binary_path = binary_path
         self._binary_name = binary_name
@@ -59,15 +52,12 @@ class SimulationExecutionOptions:
         self.checkpoint_interval = checkpoint_interval
         self.checkpoint_timesteps = checkpoint_timesteps
         self.checkpoint_file = checkpoint_file
+        self.input_file = input_file
+        self.output_file = output_file
 
         if self.checkpoint_file is not None:
             if self.checkpoint_interval is None and self.checkpoint_timesteps is None:
                 raise ValueError("One of checkpoint_interval or checkpoint_timesteps must be set when checkpoint_file is set.")
-
-    @property
-    def num_threads_explicit(self) -> bool:
-        """True if user explicitly set num_threads (vs auto-detected cpu_count)."""
-        return self._num_threads_explicit
 
     @property
     def num_threads(self) -> Union[int, str]:
@@ -106,21 +96,6 @@ class SimulationExecutionOptions:
         if not (isinstance(value, int) and 0 <= value <= 2):
             raise ValueError("Verbose level must be between 0 and 2")
         self._verbose_level = value
-
-    @property
-    def backend(self) -> Optional[str]:
-        return self._backend
-
-    @backend.setter
-    def backend(self, value: Optional[str]):
-        valid_backends = [None, "OMP", "CUDA", "python"]
-        if value not in valid_backends:
-            raise ValueError(f"Backend must be one of {valid_backends}, got '{value}'")
-        self._backend = value
-
-    @property
-    def is_python_backend(self) -> bool:
-        return self._backend == "python"
 
     @property
     def is_gpu_simulation(self) -> Optional[bool]:
@@ -300,7 +275,8 @@ class SimulationExecutionOptions:
             if ("I_avg" in sensor.record or "I" in sensor.record) and ("p" not in sensor.record):
                 options_list.append("--p_raw")
         else:
-            options_list.append("--p_raw")
+            # options_list.append("--p_raw")
+            options_list.append("--p_final")
 
         if sensor.record_start_index is not None:
             options_list.append("-s")

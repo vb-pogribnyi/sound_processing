@@ -3,8 +3,6 @@ import numpy as np
 import cv2
 import os
 from tqdm import tqdm
-import sys
-sys.path.append('/app')
 
 from pathlib import Path
 from kwave.data import Vector
@@ -45,13 +43,13 @@ def load_mesh(mesh_path, kgrid, N, Nt):
     mesh_zend = mesh_zstart + mesh.shape[2]
     source.p_mask[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = 1
 
-    source.p = np.transpose(mesh, [2, 1, 0, 3]).reshape(-1, Nt)
+    source.p = np.permute_dims(mesh, [2, 1, 0, 3]).reshape(-1, Nt)
 
     return source
 
 def main():
     # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\draw_mesh.npy')
-    mesh = np.load('/app/input_mesh//000.npy')
+    mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\input_mesh\\000.npy')
     # grid properties
     N = Vector([int(mesh.shape[0]*1.2), int(mesh.shape[1]*1.2), int(mesh.shape[2]*2)])
     d = Vector([0.001, 0.001, 0.0003])
@@ -84,14 +82,14 @@ def main():
     )
 
     execution_options = SimulationExecutionOptions(is_gpu_simulation=True)
-    proc_dir = '/app/processing'
-    result_dir = os.path.join(proc_dir, '/app/outputs')
+    proc_dir = 'processing'
+    result_dir = os.path.join(proc_dir, 'outputs')
     os.makedirs(proc_dir, exist_ok=True)
     os.makedirs(result_dir, exist_ok=True)
     execution_options.checkpoint_file = os.path.join(proc_dir, 'ckpt.h5')
     execution_options.checkpoint_timesteps = int(Nt / 10)
     execution_options.output_file = os.path.join(proc_dir, 'output.h5')
-    execution_options.binary_path = Path('/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA')
+    execution_options.binary_path = Path('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\K-WaveCUDA\\kspaceFirstOrder-CUDA\\x64\\Debug\\kspaceFirstOrder-CUDA.exe')
     
     for step_idx in range(1000000):
         source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % len(sources)

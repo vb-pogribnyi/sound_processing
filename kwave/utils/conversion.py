@@ -13,8 +13,6 @@ from kwave.kgrid import kWaveGrid
 from kwave.utils.matlab import matlab_mask
 from kwave.utils.matrix import sort_rows
 
-_default = object()  # sentinel for detecting implicit default order="F"
-
 
 @typechecker
 def db2neper(alpha: Real[kt.ArrayLike, "..."], y: Real[kt.ScalarLike, ""] = 1) -> Real[kt.ArrayLike, "..."]:
@@ -166,31 +164,23 @@ def cart2grid(
     kgrid: kWaveGrid,
     cart_data: Union[Float[ndarray, "1 NumPoints"], Float[ndarray, "2 NumPoints"], Float[ndarray, "3 NumPoints"]],
     axisymmetric: bool = False,
-    *,
-    order: str = _default,
 ) -> Tuple:
-    """Interpolate Cartesian points onto a binary grid using nearest neighbour.
+    """
+    Interpolates the set of Cartesian points defined by
+    cart_data onto a binary matrix defined by the kWaveGrid object
+    kgrid using nearest neighbour interpolation. An error is returned if
+    the Cartesian points are outside the computational domain defined by
+    kgrid.
 
     Args:
         kgrid: simulation grid
         cart_data: Cartesian sensor points
         axisymmetric: set to True to use axisymmetric interpolation
-        order: ``"C"`` for C-order (new API) or ``"F"`` for Fortran-order
-            (legacy).  Default ``"F"`` — will change to ``"C"`` in a future
-            release.
 
     Returns:
-        (grid_data, order_index, reorder_index)
-    """
-    if order is _default:
-        import warnings
+        A binary grid
 
-        warnings.warn(
-            "cart2grid default order='F' will change to order='C' in a future release. Pass order='C' explicitly.",
-            FutureWarning,
-            stacklevel=2,
-        )
-        order = "F"
+    """
 
     # check for axisymmetric input
     if axisymmetric and kgrid.dim != 2:
@@ -253,8 +243,7 @@ def cart2grid(
             grid_data[data_x[data_index], data_y[data_index]] = int(data_index)
 
         # extract reordering index
-        flat = grid_data.ravel(order=order)
-        reorder_index = flat[flat != -1]
+        reorder_index = grid_data.flatten(order="F")[grid_data.flatten(order="F") != -1]
         reorder_index = reorder_index[:, None] + 1  # [N] => [N, 1]
 
     elif kgrid.dim == 3:
@@ -295,8 +284,7 @@ def cart2grid(
             grid_data[data_x[data_index], data_y[data_index], data_z[data_index]] = point_index[data_index]
 
         # extract reordering index
-        flat = grid_data.ravel(order=order)
-        reorder_index = flat[flat != -1]
+        reorder_index = grid_data.flatten(order="F")[grid_data.flatten(order="F") != -1]
         reorder_index = reorder_index[:, None, None]  # [N] => [N, 1, 1]
     else:
         raise ValueError("Input cart_data must be a 1, 2, or 3 dimensional matrix.")

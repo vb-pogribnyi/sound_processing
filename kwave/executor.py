@@ -52,19 +52,19 @@ class Executor:
                     raise subprocess.CalledProcessError(proc.returncode, command, stdout, stderr)
 
         except subprocess.CalledProcessError as e:
+            # This ensures stdout is printed regardless of show_sim_logs value if an error occurs
             print(e.stdout)
             print(e.stderr, file=sys.stderr)
-            if sys.platform == "darwin" and e.stderr and any(s in e.stderr for s in ("Library not loaded", "image not found", "dyld")):
-                print(
-                    "\nMissing macOS libraries for the C++ backend.\n"
-                    "Install them with:\n\n"
-                    "    brew install fftw hdf5 zlib libomp\n\n"
-                    "Alternatively, use backend='python' which requires no extra dependencies.",
-                    file=sys.stderr,
-                )
             raise
 
         sensor_data = self.parse_executable_output(output_filename)
+        if 'p_final' in sensor_data:
+            sensor_data['p'] = sensor_data['p_final']
+        if '--checkpoint_file' in options:
+            ckpt_file = options[options.index('--checkpoint_file') + 1]
+            if os.path.exists(ckpt_file):
+                ckpt_sensor_data = self.parse_executable_output(ckpt_file)
+                sensor_data['p' if not 'p' in sensor_data else'ckpt_p'] = ckpt_sensor_data['p']
         if not self.simulation_options.pml_inside:
             self._crop_pml(sensor_data)
 

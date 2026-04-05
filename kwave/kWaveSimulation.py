@@ -145,13 +145,8 @@ class kWaveSimulation(object):
     @property
     def equation_of_state(self):
         """
-        Select the active equation-of-state label based on the medium's absorption and Stokes settings.
-
         Returns:
-            equation (str): One of:
-                - 'stokes' when the medium is absorbing and uses the Stokes model.
-                - 'absorbing' when the medium is absorbing and not using the Stokes model.
-                - 'lossless' when the medium is not absorbing.
+            Set equation of state variable
         """
         if self.medium.absorbing:
             if self.medium.stokes:
@@ -159,15 +154,14 @@ class kWaveSimulation(object):
             else:
                 return "absorbing"
         else:
-            return "lossless"
+            return "loseless"
 
     @property
     def use_sensor(self):
         """
-        Indicates whether a sensor is defined for the simulation.
-
         Returns:
-            True if a sensor object is present, False otherwise.
+            False if no output of any kind is required
+
         """
         return self.sensor is not None
 
@@ -1502,16 +1496,42 @@ class kWaveSimulation(object):
         return self.time_rev
 
     def _is_binary_sensor_mask(self, kgrid_dim: int) -> bool:
-        """Check if sensor mask is a binary grid matching kgrid dimensions (with or without PML)."""
-        mask_shape = self.sensor.mask.shape
+        """
+        Check if the sensor mask is a binary grid matching the kgrid dimensions.
+        Takes into account that the PML may have been added to the sensor mask.
+
+        Args:
+            kgrid_dim: Dimensionality of the kWaveGrid
+
+        Returns:
+            bool: True if the sensor mask is a binary grid matching kgrid dimensions
+        """
+        # Get the grid shape without PML
         grid_shape = self.kgrid.k.shape
+
+        # Get the sensor mask shape
+        mask_shape = self.sensor.mask.shape
+
+        # If shapes match exactly, it's a binary mask
         if mask_shape == grid_shape:
             return True
-        pml = self.options.pml_size
-        if pml is None:
+
+        # If the sensor mask is larger by PML size in each dimension, it's still a binary mask
+        if pml_size := self.options.pml_size is None:
             return False
-        pml = np.broadcast_to(np.atleast_1d(pml), (kgrid_dim,))
-        return mask_shape == tuple(g + 2 * int(p) for g, p in zip(grid_shape, pml))
+
+        if len(pml_size) == 1:
+            # make pml_size a vector type
+            pml_size = Vector(np.tile(pml_size, kgrid_dim))
+
+        if kgrid_dim == 1:
+            expected_shape = (grid_shape[0] + 2 * pml_size.x,)
+        elif kgrid_dim == 2:
+            expected_shape = (grid_shape[0] + 2 * pml_size.x, grid_shape[1] + 2 * pml_size.y)
+        else:  # 3D
+            expected_shape = (grid_shape[0] + 2 * pml_size.x, grid_shape[1] + 2 * pml_size.y, grid_shape[2] + 2 * pml_size.z)
+
+        return mask_shape == expected_shape
 
     def _is_cuboid_corners_mask(self, kgrid_dim: int) -> bool:
         """

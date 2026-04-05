@@ -63,7 +63,9 @@ def save_to_disk_func(
     # =========================================================================
 
     remove_z_dimension(float_variables, kgrid.dim)
-    save_file(opt.input_filename, integer_variables, float_variables, opt.hdf_compression_level, auto_chunk=auto_chunk)
+    input_file = opt.execution_options.input_file if opt.execution_options.input_file is not None else opt.input_filename
+    if not os.path.exists(input_file):
+        save_file(input_file, integer_variables, float_variables, opt.hdf_compression_level, auto_chunk=auto_chunk)
 
     # update command line status
     logging.log(logging.INFO, f"  completed in {scale_time(TicToc.toc())}")

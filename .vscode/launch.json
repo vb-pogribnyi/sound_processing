@@ -10,6 +10,27 @@
             "request": "launch",
             "program": "/app/src/01_simple_test.py",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "DrawOutputs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/src/draw_outputs.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "FileSource",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/src/02_file_source.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "GenerateProfile",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/src/CircularSignal/main.py",
+            "console": "integratedTerminal"
         }
     ]
 }

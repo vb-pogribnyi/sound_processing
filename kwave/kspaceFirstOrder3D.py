@@ -1,4 +1,3 @@
-import warnings
 from typing import Union
 
 import numpy as np
@@ -193,22 +192,11 @@ def kspaceFirstOrder3D(
     kspaceFirstOrder2D : 2D version of this simulation function
     """
     if time_rev:
-        warnings.warn("The time_rev parameter is deprecated. Use the TimeReversal class instead.", DeprecationWarning, stacklevel=2)
-    warnings.warn(
-        "kspaceFirstOrder3D is deprecated. Use kspaceFirstOrder() from "
-        "kwave.kspaceFirstOrder instead. See kwave.compat.options_to_kwargs() "
-        "for migrating options.",
-        FutureWarning,
-        stacklevel=2,
-    )
+        import warnings
 
+        warnings.warn("The time_rev parameter is deprecated. Use the TimeReversal class instead.", DeprecationWarning, stacklevel=2)
     # start the timer and store the start time
     TicToc.tic()
-
-    if execution_options.is_python_backend:
-        from kwave.solvers.native import run_python_backend
-
-        return run_python_backend(kgrid, medium, source, sensor, simulation_options, execution_options)
 
     # Currently we only support binary execution, meaning all simulations must be saved to disk.
     if not simulation_options.save_to_disk:
@@ -384,5 +372,7 @@ def kspaceFirstOrder3D(
 
         executor = Executor(simulation_options=simulation_options, execution_options=execution_options)
         executor_options = execution_options.as_list(sensor=k_sim.sensor)
-        sensor_data = executor.run_simulation(k_sim.options.input_filename, k_sim.options.output_filename, options=executor_options)
+        input_name = execution_options.input_file if execution_options.input_file is not None else k_sim.options.input_filename
+        output_name = execution_options.output_file if execution_options.output_file is not None else k_sim.options.output_filename
+        sensor_data = executor.run_simulation(input_name, output_name, options=executor_options)
         return sensor_data
