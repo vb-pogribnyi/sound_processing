@@ -880,6 +880,11 @@ class kWaveSimulation(object):
                 # create an indexing variable corresponding to the location of all the source elements
                 self.p_source_pos_index = matlab_find(self.source.p_mask)
 
+                # TODO: If source speed is added, filter it out as well.
+                p_notempty = np.sum(np.abs(self.source.p), 1) > 0
+                self.source.p = self.source.p[p_notempty]
+                self.p_source_pos_index = self.p_source_pos_index[p_notempty]
+
                 # check if the mask is binary or labelled
                 p_unique = np.unique(self.source.p_mask)
 

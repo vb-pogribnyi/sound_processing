@@ -204,113 +204,120 @@ def kspaceFirstOrder3D(
             raise ValueError("GPU simulation requires saving to disk. Please set SimulationOptions.save_to_disk=True")
         else:
             raise ValueError("CPU simulation requires saving to disk. Please set SimulationOptions.save_to_disk=True")
+        
+    
+    input_name = execution_options.input_file if execution_options.input_file is not None else k_sim.options.input_filename
+    output_name = execution_options.output_file if execution_options.output_file is not None else k_sim.options.output_filename
+    executor = Executor(simulation_options=simulation_options, execution_options=execution_options)
+    executor_options = execution_options.as_list(sensor=sensor)
+    import os
+    if not os.path.exists(input_name):
+        k_sim = kWaveSimulation(kgrid=kgrid, source=source, sensor=sensor, medium=medium, simulation_options=simulation_options)
+        k_sim.input_checking("kspaceFirstOrder3D")
 
-    k_sim = kWaveSimulation(kgrid=kgrid, source=source, sensor=sensor, medium=medium, simulation_options=simulation_options)
-    k_sim.input_checking("kspaceFirstOrder3D")
+        # =========================================================================
+        # CALCULATE MEDIUM PROPERTIES ON STAGGERED GRID
+        # =========================================================================
+        options = k_sim.options
 
-    # =========================================================================
-    # CALCULATE MEDIUM PROPERTIES ON STAGGERED GRID
-    # =========================================================================
-    options = k_sim.options
+        # TODO(walter): this could all be moved inside of ksim
 
-    # TODO(walter): this could all be moved inside of ksim
+        # interpolate the values of the density at the staggered grid locations
+        # where sgx = (x + dx/2, y, z), sgy = (x, y + dy/2, z), sgz = (x, y, z + dz/2)
+        k_sim.rho0 = np.atleast_1d(k_sim.rho0)
+        if k_sim.rho0.ndim == 3 and options.use_sg:
+            # rho0 is heterogeneous and staggered grids are used
+            grid_points = [k_sim.kgrid.x, k_sim.kgrid.y, k_sim.kgrid.z]
+            k_sim.rho0_sgx = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x + k_sim.kgrid.dx / 2, k_sim.kgrid.y, k_sim.kgrid.z])
+            k_sim.rho0_sgy = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x, k_sim.kgrid.y + k_sim.kgrid.dy / 2, k_sim.kgrid.z])
+            k_sim.rho0_sgz = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x, k_sim.kgrid.y, k_sim.kgrid.z + k_sim.kgrid.dz / 2])
+        else:
+            # rho0 is homogeneous or staggered grids are not used
+            k_sim.rho0_sgx = k_sim.rho0
+            k_sim.rho0_sgy = k_sim.rho0
+            k_sim.rho0_sgz = k_sim.rho0
 
-    # interpolate the values of the density at the staggered grid locations
-    # where sgx = (x + dx/2, y, z), sgy = (x, y + dy/2, z), sgz = (x, y, z + dz/2)
-    k_sim.rho0 = np.atleast_1d(k_sim.rho0)
-    if k_sim.rho0.ndim == 3 and options.use_sg:
-        # rho0 is heterogeneous and staggered grids are used
-        grid_points = [k_sim.kgrid.x, k_sim.kgrid.y, k_sim.kgrid.z]
-        k_sim.rho0_sgx = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x + k_sim.kgrid.dx / 2, k_sim.kgrid.y, k_sim.kgrid.z])
-        k_sim.rho0_sgy = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x, k_sim.kgrid.y + k_sim.kgrid.dy / 2, k_sim.kgrid.z])
-        k_sim.rho0_sgz = interpolate3d(grid_points, k_sim.rho0, [k_sim.kgrid.x, k_sim.kgrid.y, k_sim.kgrid.z + k_sim.kgrid.dz / 2])
-    else:
-        # rho0 is homogeneous or staggered grids are not used
-        k_sim.rho0_sgx = k_sim.rho0
-        k_sim.rho0_sgy = k_sim.rho0
-        k_sim.rho0_sgz = k_sim.rho0
+        # invert rho0 so it doesn't have to be done each time step
+        k_sim.rho0_sgx_inv = 1 / k_sim.rho0_sgx
+        k_sim.rho0_sgy_inv = 1 / k_sim.rho0_sgy
+        k_sim.rho0_sgz_inv = 1 / k_sim.rho0_sgz
 
-    # invert rho0 so it doesn't have to be done each time step
-    k_sim.rho0_sgx_inv = 1 / k_sim.rho0_sgx
-    k_sim.rho0_sgy_inv = 1 / k_sim.rho0_sgy
-    k_sim.rho0_sgz_inv = 1 / k_sim.rho0_sgz
+        # clear unused variables if not using them in _saveToDisk
+        if not options.save_to_disk:
+            del k_sim.rho0_sgx
+            del k_sim.rho0_sgy
+            del k_sim.rho0_sgz
 
-    # clear unused variables if not using them in _saveToDisk
-    if not options.save_to_disk:
-        del k_sim.rho0_sgx
-        del k_sim.rho0_sgy
-        del k_sim.rho0_sgz
+        # =========================================================================
+        # PREPARE DERIVATIVE AND PML OPERATORS
+        # =========================================================================
 
-    # =========================================================================
-    # PREPARE DERIVATIVE AND PML OPERATORS
-    # =========================================================================
+        # get the PML operators based on the reference sound speed and PML settings
+        Nx, Ny, Nz = k_sim.kgrid.Nx, k_sim.kgrid.Ny, k_sim.kgrid.Nz
+        dx, dy, dz = k_sim.kgrid.dx, k_sim.kgrid.dy, k_sim.kgrid.dz
+        dt = k_sim.kgrid.dt
+        pml_x_alpha, pml_y_alpha, pml_z_alpha = options.pml_x_alpha, options.pml_y_alpha, options.pml_z_alpha
+        pml_x_size, pml_y_size, pml_z_size = options.pml_x_size, options.pml_y_size, options.pml_z_size
+        c_ref = k_sim.c_ref
 
-    # get the PML operators based on the reference sound speed and PML settings
-    Nx, Ny, Nz = k_sim.kgrid.Nx, k_sim.kgrid.Ny, k_sim.kgrid.Nz
-    dx, dy, dz = k_sim.kgrid.dx, k_sim.kgrid.dy, k_sim.kgrid.dz
-    dt = k_sim.kgrid.dt
-    pml_x_alpha, pml_y_alpha, pml_z_alpha = options.pml_x_alpha, options.pml_y_alpha, options.pml_z_alpha
-    pml_x_size, pml_y_size, pml_z_size = options.pml_x_size, options.pml_y_size, options.pml_z_size
-    c_ref = k_sim.c_ref
+        k_sim.pml_x = get_pml(Nx, dx, dt, c_ref, pml_x_size, pml_x_alpha, False, 1)
+        k_sim.pml_x_sgx = get_pml(Nx, dx, dt, c_ref, pml_x_size, pml_x_alpha, True and options.use_sg, 1)
+        k_sim.pml_y = get_pml(Ny, dy, dt, c_ref, pml_y_size, pml_y_alpha, False, 2)
+        k_sim.pml_y_sgy = get_pml(Ny, dy, dt, c_ref, pml_y_size, pml_y_alpha, True and options.use_sg, 2)
+        k_sim.pml_z = get_pml(Nz, dz, dt, c_ref, pml_z_size, pml_z_alpha, False, 3)
+        k_sim.pml_z_sgz = get_pml(Nz, dz, dt, c_ref, pml_z_size, pml_z_alpha, True and options.use_sg, 3)
 
-    k_sim.pml_x = get_pml(Nx, dx, dt, c_ref, pml_x_size, pml_x_alpha, False, 1)
-    k_sim.pml_x_sgx = get_pml(Nx, dx, dt, c_ref, pml_x_size, pml_x_alpha, True and options.use_sg, 1)
-    k_sim.pml_y = get_pml(Ny, dy, dt, c_ref, pml_y_size, pml_y_alpha, False, 2)
-    k_sim.pml_y_sgy = get_pml(Ny, dy, dt, c_ref, pml_y_size, pml_y_alpha, True and options.use_sg, 2)
-    k_sim.pml_z = get_pml(Nz, dz, dt, c_ref, pml_z_size, pml_z_alpha, False, 3)
-    k_sim.pml_z_sgz = get_pml(Nz, dz, dt, c_ref, pml_z_size, pml_z_alpha, True and options.use_sg, 3)
+        # define the k-space derivative operators, multiply by the staggered
+        # grid shift operators, and then re-order using ifftshift (the option
+        # flgs.use_sg exists for debugging)
+        kx_vec, ky_vec, kz_vec = k_sim.kgrid.k_vec
+        kx_vec, ky_vec, kz_vec = np.array(kx_vec), np.array(ky_vec), np.array(kz_vec)
+        if options.use_sg:
+            k_sim.ddx_k_shift_pos = np.fft.ifftshift(1j * kx_vec * np.exp(1j * kx_vec * dx / 2)).T
+            k_sim.ddx_k_shift_neg = np.fft.ifftshift(1j * kx_vec * np.exp(-1j * kx_vec * dx / 2)).T
+            k_sim.ddy_k_shift_pos = np.fft.ifftshift(1j * ky_vec * np.exp(1j * ky_vec * dy / 2)).T
+            k_sim.ddy_k_shift_neg = np.fft.ifftshift(1j * ky_vec * np.exp(-1j * ky_vec * dy / 2)).T
+            k_sim.ddz_k_shift_pos = np.fft.ifftshift(1j * kz_vec * np.exp(1j * kz_vec * dz / 2)).T
+            k_sim.ddz_k_shift_neg = np.fft.ifftshift(1j * kz_vec * np.exp(-1j * kz_vec * dz / 2)).T
+        else:
+            k_sim.ddx_k_shift_pos = np.fft.ifftshift(1j * kx_vec).T
+            k_sim.ddx_k_shift_neg = np.fft.ifftshift(1j * kx_vec).T
+            k_sim.ddy_k_shift_pos = np.fft.ifftshift(1j * ky_vec).T
+            k_sim.ddy_k_shift_neg = np.fft.ifftshift(1j * ky_vec).T
+            k_sim.ddz_k_shift_pos = np.fft.ifftshift(1j * kz_vec).T
+            k_sim.ddz_k_shift_neg = np.fft.ifftshift(1j * kz_vec).T
 
-    # define the k-space derivative operators, multiply by the staggered
-    # grid shift operators, and then re-order using ifftshift (the option
-    # flgs.use_sg exists for debugging)
-    kx_vec, ky_vec, kz_vec = k_sim.kgrid.k_vec
-    kx_vec, ky_vec, kz_vec = np.array(kx_vec), np.array(ky_vec), np.array(kz_vec)
-    if options.use_sg:
-        k_sim.ddx_k_shift_pos = np.fft.ifftshift(1j * kx_vec * np.exp(1j * kx_vec * dx / 2)).T
-        k_sim.ddx_k_shift_neg = np.fft.ifftshift(1j * kx_vec * np.exp(-1j * kx_vec * dx / 2)).T
-        k_sim.ddy_k_shift_pos = np.fft.ifftshift(1j * ky_vec * np.exp(1j * ky_vec * dy / 2)).T
-        k_sim.ddy_k_shift_neg = np.fft.ifftshift(1j * ky_vec * np.exp(-1j * ky_vec * dy / 2)).T
-        k_sim.ddz_k_shift_pos = np.fft.ifftshift(1j * kz_vec * np.exp(1j * kz_vec * dz / 2)).T
-        k_sim.ddz_k_shift_neg = np.fft.ifftshift(1j * kz_vec * np.exp(-1j * kz_vec * dz / 2)).T
-    else:
-        k_sim.ddx_k_shift_pos = np.fft.ifftshift(1j * kx_vec).T
-        k_sim.ddx_k_shift_neg = np.fft.ifftshift(1j * kx_vec).T
-        k_sim.ddy_k_shift_pos = np.fft.ifftshift(1j * ky_vec).T
-        k_sim.ddy_k_shift_neg = np.fft.ifftshift(1j * ky_vec).T
-        k_sim.ddz_k_shift_pos = np.fft.ifftshift(1j * kz_vec).T
-        k_sim.ddz_k_shift_neg = np.fft.ifftshift(1j * kz_vec).T
+        # force the derivative and shift operators to be in the correct direction for use with BSXFUN
+        k_sim.ddy_k_shift_pos = k_sim.ddy_k_shift_pos.T
+        k_sim.ddy_k_shift_neg = k_sim.ddy_k_shift_neg.T
 
-    # force the derivative and shift operators to be in the correct direction for use with BSXFUN
-    k_sim.ddy_k_shift_pos = k_sim.ddy_k_shift_pos.T
-    k_sim.ddy_k_shift_neg = k_sim.ddy_k_shift_neg.T
+        ddz_k_shift_pos = k_sim.ddz_k_shift_pos  # N x 1
+        ddz_k_shift_pos = np.expand_dims(ddz_k_shift_pos, axis=-1).transpose((1, 2, 0))
+        k_sim.ddz_k_shift_pos = ddz_k_shift_pos
 
-    ddz_k_shift_pos = k_sim.ddz_k_shift_pos  # N x 1
-    ddz_k_shift_pos = np.expand_dims(ddz_k_shift_pos, axis=-1).transpose((1, 2, 0))
-    k_sim.ddz_k_shift_pos = ddz_k_shift_pos
+        ddz_k_shift_neg = k_sim.ddz_k_shift_neg  # N x 1
+        ddz_k_shift_neg = np.expand_dims(ddz_k_shift_neg, axis=-1).transpose((1, 2, 0))
+        k_sim.ddz_k_shift_neg = ddz_k_shift_neg
 
-    ddz_k_shift_neg = k_sim.ddz_k_shift_neg  # N x 1
-    ddz_k_shift_neg = np.expand_dims(ddz_k_shift_neg, axis=-1).transpose((1, 2, 0))
-    k_sim.ddz_k_shift_neg = ddz_k_shift_neg
+        # create k-space operators (the option flgs.use_kspace exists for debugging)
+        if options.use_kspace:
+            k = k_sim.kgrid.k
+            k_sim.kappa = np.fft.ifftshift(np.sinc(c_ref * k * dt / 2))
+            if (k_sim.source_p and k_sim.source.p_mode == "additive") or (
+                (k_sim.source_ux or k_sim.source_uy or k_sim.source_uz) and k_sim.source.u_mode == "additive"
+            ):
+                k_sim.source_kappa = np.fft.ifftshift(np.cos(c_ref * k * dt / 2))
+        else:
+            k_sim.kappa = 1
+            k_sim.source_kappa = 1
 
-    # create k-space operators (the option flgs.use_kspace exists for debugging)
-    if options.use_kspace:
-        k = k_sim.kgrid.k
-        k_sim.kappa = np.fft.ifftshift(np.sinc(c_ref * k * dt / 2))
-        if (k_sim.source_p and k_sim.source.p_mode == "additive") or (
-            (k_sim.source_ux or k_sim.source_uy or k_sim.source_uz) and k_sim.source.u_mode == "additive"
-        ):
-            k_sim.source_kappa = np.fft.ifftshift(np.cos(c_ref * k * dt / 2))
-    else:
-        k_sim.kappa = 1
-        k_sim.source_kappa = 1
+        # =========================================================================
+        # SAVE DATA TO DISK FOR RUNNING SIMULATION EXTERNAL TO MATLAB
+        # =========================================================================
 
-    # =========================================================================
-    # SAVE DATA TO DISK FOR RUNNING SIMULATION EXTERNAL TO MATLAB
-    # =========================================================================
-
-    # save to disk option for saving the input matrices to disk for running
-    # simulations using k-Wave++
-    if options.save_to_disk:
+        # save to disk option for saving the input matrices to disk for running
+        # simulations using k-Wave++
+            
         # store the pml size for resizing transducer object below
         retract_size = [[options.pml_x_size, options.pml_y_size, options.pml_z_size]]
 
@@ -370,9 +377,5 @@ def kspaceFirstOrder3D(
         if options.save_to_disk_exit:
             return
 
-        executor = Executor(simulation_options=simulation_options, execution_options=execution_options)
-        executor_options = execution_options.as_list(sensor=k_sim.sensor)
-        input_name = execution_options.input_file if execution_options.input_file is not None else k_sim.options.input_filename
-        output_name = execution_options.output_file if execution_options.output_file is not None else k_sim.options.output_filename
-        sensor_data = executor.run_simulation(input_name, output_name, options=executor_options)
-        return sensor_data
+    sensor_data = executor.run_simulation(input_name, output_name, options=executor_options)
+    return sensor_data
