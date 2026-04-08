@@ -16,7 +16,7 @@ from kwave.kspaceFirstOrder3D import kspaceFirstOrder3D
 from kwave.options.simulation_execution_options import SimulationExecutionOptions
 from kwave.options.simulation_options import SimulationOptions
 
-# import KWave.utils
+SIM_BOX_RATIO = 5.0
 
 from kwave.utils.mapgen import make_disc
 def add_source(source, grid, offset, signal, size=4):
@@ -53,7 +53,7 @@ def main():
     # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\draw_mesh.npy')
     mesh = np.load('/app/input_mesh//000.npy')
     # grid properties
-    N = Vector([int(mesh.shape[0]*1.2), int(mesh.shape[1]*1.2), int(mesh.shape[2]*2)])
+    N = Vector([int(mesh.shape[0]*SIM_BOX_RATIO), int(mesh.shape[1]*SIM_BOX_RATIO), int(mesh.shape[2]*2)])
     d = Vector([0.001, 0.001, 0.0003])
     kgrid = kWaveGrid(N, d)
     kgrid.dt = 1e-6
@@ -64,7 +64,7 @@ def main():
     # medium = kWaveMedium(sound_speed=np.ones(kgrid.k.shape) * 343)
     # medium.density = np.ones(kgrid.k.shape) * 1000
     medium = kWaveMedium(sound_speed=343)
-    medium.density = 1000
+    medium.density = 1
     # kgrid.makeTime(np.min(medium.sound_speed))
 
     sources = []
@@ -99,7 +99,7 @@ def main():
         simulation_options.execution_options = execution_options
         output = kspaceFirstOrder3D(kgrid, sources[source_idx], sensor, medium, simulation_options, execution_options)
         # sensor_data = output["p"]
-        np.save(os.path.join(result_dir, f'{str(step_idx).zfill(5)}.npy'), output["p"])
+        np.save(os.path.join(result_dir, f'{str(step_idx).zfill(5)}.npy'), output["p"][16])
         if not os.path.exists(execution_options.checkpoint_file):
             break
 
