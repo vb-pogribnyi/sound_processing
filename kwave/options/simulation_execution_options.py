@@ -35,6 +35,7 @@ class SimulationExecutionOptions:
         checkpoint_file: Optional[Path | str] = None,  # [path to hdf5 file]
         input_file: Optional[Path | str] = None,  # [path to hdf5 file]
         output_file: Optional[Path | str] = None,  # [path to hdf5 file]
+        sampling_period: int = 0,
     ):
         self.is_gpu_simulation = is_gpu_simulation
         self._binary_path = binary_path
@@ -54,6 +55,7 @@ class SimulationExecutionOptions:
         self.checkpoint_file = checkpoint_file
         self.input_file = input_file
         self.output_file = output_file
+        self.sampling_period = sampling_period
 
         if self.checkpoint_file is not None:
             if self.checkpoint_interval is None and self.checkpoint_timesteps is None:
@@ -275,12 +277,14 @@ class SimulationExecutionOptions:
             if ("I_avg" in sensor.record or "I" in sensor.record) and ("p" not in sensor.record):
                 options_list.append("--p_raw")
         else:
-            # options_list.append("--p_raw")
-            options_list.append("--p_final")
+            options_list.append("--p_raw")
+            # options_list.append("--p_final")
 
         if sensor.record_start_index is not None:
             options_list.append("-s")
             options_list.append(f"{sensor.record_start_index}")
+            options_list.append("--s_period")
+            options_list.append(f"{self.sampling_period}")
 
         return options_list
 

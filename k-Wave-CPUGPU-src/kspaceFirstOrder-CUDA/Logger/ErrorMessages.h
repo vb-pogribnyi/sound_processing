@@ -156,6 +156,9 @@ ErrorMessage kErrFmtNoCompressionLevel
 ErrorMessage kErrFmtNoSamplingStartTimeStep
   = "Error: Invalid sampling start time step.";
 /// Command line parameters error message.
+ErrorMessage kErrFmtNoSamplingPeriodStep
+  = "Error: Invalid sampling period step.";
+/// Command line parameters error message.
 ErrorMessage kErrFmtNoBenchmarkTimeStep
   = "Error: Invalid number of time step for benchmark.";
 /// Command line parameters error message.

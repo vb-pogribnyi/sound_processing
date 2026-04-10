@@ -160,6 +160,7 @@ void CommandLineParameters::parseCommandLine(int argc, char** argv)
     kPressureMaxAll          =  13,
     kPressureMinAll          =  14,
     kPressureFinal           =  15,
+    kSamplingPeriod          =  16,
 
     kVelocityRaw             = 'u',
     kVelocityRms             =  20,
@@ -190,6 +191,7 @@ void CommandLineParameters::parseCommandLine(int argc, char** argv)
     {"p_max_all",            no_argument,       nullptr, kPressureMaxAll},
     {"p_min_all",            no_argument,       nullptr, kPressureMinAll},
     {"p_final",              no_argument,       nullptr, kPressureFinal},
+    {"s_period",             required_argument, nullptr, kSamplingPeriod},
 
     {"u_raw",                no_argument,       nullptr, kVelocityRaw},
     {"u_rms",                no_argument,       nullptr, kVelocityRms},
@@ -347,6 +349,23 @@ void CommandLineParameters::parseCommandLine(int argc, char** argv)
         catch (...)
         {
           reportError(kErrFmtNoSamplingStartTimeStep);
+        }
+        break;
+      }
+
+      case kSamplingPeriod:
+      {
+        try
+        {
+          if (std::stoll(optarg) < 1)
+          {
+            throw std::invalid_argument("--s_period");
+          }
+          mSamplingPeriod = std::stoll(optarg);
+        }
+        catch (...)
+        {
+          reportError(kErrFmtNoSamplingPeriodStep);
         }
         break;
       }
@@ -699,7 +718,7 @@ CommandLineParameters::CommandLineParameters()
     // output flags
     mStorePressureRawFlag(false), mStorePressureRmsFlag(false),
     mStorePressureMaxFlag(false), mStorePressureMinFlag(false),
-    mStorePressureMaxAllFlag(false), mStorePressureMinAllFlag(false), mStorePressureFinalAllFlag(false),
+    mStorePressureMaxAllFlag(false), mStorePressureMinAllFlag(false), mStorePressureFinalAllFlag(false), mSamplingPeriod(1),
     mStoreVelocityRawFlag(false), mStoreVelocityNonStaggeredRawFlag(false),
     mStoreVelocityRmsFlag(false), mStoreVelocityMaxFlag(false), mStoreVelocityMinFlag(false),
     mStoreVelocityMaxAllFlag(false), mStoreVelocityMinAllFlag(false), mStoreVelocityFinalAllFlag(false),

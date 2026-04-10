@@ -17,6 +17,7 @@ from kwave.options.simulation_execution_options import SimulationExecutionOption
 from kwave.options.simulation_options import SimulationOptions
 
 SIM_BOX_RATIO = 5.0
+SAMPLING_PERIOD = 9
 
 from kwave.utils.mapgen import make_disc
 def add_source(source, grid, offset, signal, size=4):
@@ -92,14 +93,20 @@ def main():
     execution_options.checkpoint_timesteps = int(Nt / 10)
     execution_options.output_file = os.path.join(proc_dir, 'output.h5')
     execution_options.binary_path = Path('/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA')
+    execution_options.sampling_period = SAMPLING_PERIOD
     
+    out_idx = 0
     for step_idx in range(1000000):
+        # TODO: Open checkpoint file and read the time index it has stopped at.
         source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % len(sources)
         execution_options.input_file = os.path.join(proc_dir, f'input_{source_idx}.h5')
         simulation_options.execution_options = execution_options
         output = kspaceFirstOrder3D(kgrid, sources[source_idx], sensor, medium, simulation_options, execution_options)
-        # sensor_data = output["p"]
-        np.save(os.path.join(result_dir, f'{str(step_idx).zfill(5)}.npy'), output["p"][16])
+        sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
+        assert(np.sum(sensor_data[:, :, :, -1]) == 0, "Checkpoint interval should be multiple of sampling period.")
+        for timestep_idx in range(sensor_data.shape[-1] - 1):
+            np.save(os.path.join(result_dir, f'{str(out_idx).zfill(5)}.npy'), sensor_data[16, :, :, timestep_idx])
+            out_idx += 1
         if not os.path.exists(execution_options.checkpoint_file):
             break
 

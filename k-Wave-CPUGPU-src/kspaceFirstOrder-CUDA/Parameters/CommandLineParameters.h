@@ -388,6 +388,7 @@ class CommandLineParameters
      * @return When to start sampling data.
      */
     size_t getSamplingStartTimeIndex()           const { return mSamplingStartTimeStep; };
+    size_t getSamplingPeriod()                   const { return mSamplingPeriod; };
 
 
     /// Print usage of the code.
@@ -466,6 +467,8 @@ class CommandLineParameters
     bool mStorePressureMinAllFlag;
     /// Store pressure in the final time step over the whole domain?
     bool mStorePressureFinalAllFlag;
+    /// After how many steps next pressure map will be sampled
+    int mSamplingPeriod;
 
     /// Store raw time-series of velocity over the sensor mask?
     bool mStoreVelocityRawFlag;

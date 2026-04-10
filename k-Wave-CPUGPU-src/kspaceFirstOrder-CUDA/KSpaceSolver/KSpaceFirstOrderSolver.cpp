@@ -1095,7 +1095,8 @@ void KSpaceFirstOrderSolver::computeMainLoop()
 
   // Since disk operations are one step delayed, we have to do the last one here.
   // However, we need to check if the loop wasn't skipped due to very short checkpoint interval
-  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex() && (!mIsTimestepRightAfterRestore))
+  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex() && (!mIsTimestepRightAfterRestore) &&
+        (mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex()) % mParameters.getSamplingPeriod() == 0)
   {
     mOutputStreamContainer.flushRawStreams();
   }
@@ -1179,8 +1180,10 @@ void KSpaceFirstOrderSolver::postProcessing()
 void KSpaceFirstOrderSolver::storeSensorData()
 {
   // Unless the time for sampling has come, exit.
-  if (mParameters.getTimeIndex() >= mParameters.getSamplingStartTimeIndex())
+  if (mParameters.getTimeIndex() >= mParameters.getSamplingStartTimeIndex() &&
+        (mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex()) % mParameters.getSamplingPeriod() == 0)
   {
+    // std::cout << "Storing sensor data...-----------------------------------------" << std::endl;
     // Read event for t_index - 1. If sampling did not occur by then, ignored it.
     // If it did store data on disk (flush) - the GPU is running asynchronously.
     // But be careful, flush has to be one step delayed to work correctly.
@@ -1293,7 +1296,8 @@ void KSpaceFirstOrderSolver::writeCheckpointData()
   Logger::log(Logger::LogLevel::kFull, kOutFmtDone);
 
   // Checkpoint output streams only if necessary (t_index > start_index), we're here one step ahead!
-  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex())
+  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex() &&
+        (mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex()) % mParameters.getSamplingPeriod() == 0)
   {
     Logger::log(Logger::LogLevel::kFull,kOutFmtStoringSensorData);
     Logger::flush(Logger::LogLevel::kFull);

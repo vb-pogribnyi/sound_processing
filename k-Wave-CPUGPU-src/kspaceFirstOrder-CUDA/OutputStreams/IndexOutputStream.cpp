@@ -83,10 +83,20 @@ void IndexOutputStream::create()
   const Parameters& params = Parameters::getInstance();
 
   // Derive dataset dimension sizes
+  // DimensionSizes datasetSize(nSampledElementsPerStep,
+  //                            (mReduceOp == ReduceOperator::kNone)
+  //                               ? params.getNt() - params.getSamplingStartTimeIndex() : 1,
+  //                            1);
+  int samplingPeriod = params.getSamplingPeriod();
+  int checkpointTimesteps = params.getCheckpointTimeSteps();
+  // +1 is in case checkpoint timesteps / sampling period has a reminder.
+  // This should not happen, otherwise the last sample will be out of its sampling period (e.g. not always 16 kHz).
+  size_t nSamples = params.getCheckpointTimeSteps() / params.getSamplingPeriod() + 1;
   DimensionSizes datasetSize(nSampledElementsPerStep,
                              (mReduceOp == ReduceOperator::kNone)
-                                ? params.getNt() - params.getSamplingStartTimeIndex() : 1,
+                                ? nSamples : 1,
                              1);
+  // std::cout << std::endl << "Creating dataset " << samplingPeriod << ' ' << checkpointTimesteps << ' ' << nSamples << std::endl;
 
   // Set HDF5 chunk size
   DimensionSizes chunkSize(nSampledElementsPerStep, 1, 1);
@@ -138,8 +148,9 @@ void IndexOutputStream::reopen()
 
   if (mReduceOp == ReduceOperator::kNone)
   { // Raw time series - just seek to the right place in the dataset
-    mSampledTimeStep = (params.getTimeIndex() < params.getSamplingStartTimeIndex())
-                          ? 0 : (params.getTimeIndex() - params.getSamplingStartTimeIndex());
+    // RECORD EVERY TIME FROM BEGINNING
+    // mSampledTimeStep = (params.getTimeIndex() < params.getSamplingStartTimeIndex())
+    //                       ? 0 : (params.getTimeIndex() - params.getSamplingStartTimeIndex());
   }
   else
   { // Aggregated quantities - reload data

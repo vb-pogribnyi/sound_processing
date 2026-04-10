@@ -727,6 +727,8 @@ class Parameters
      * @return When to start sampling data.
      */
     size_t getSamplingStartTimeIndex()    const { return mCommandLineParameters.getSamplingStartTimeIndex(); };
+    size_t getSamplingPeriod()    const { return mCommandLineParameters.getSamplingPeriod(); };
+    size_t getCheckpointTimeSteps()    const { return mCommandLineParameters.getCheckpointTimeSteps(); };
 
     /**
      * @brief  Is  -p or --p_raw specified at the command line?
