@@ -1,7 +1,7 @@
 1. Profile generation - make number of timesteps parameter; the timestep itself is to be calculated. 
-2. Export meta information, such as timestep and mesh steps
+2. + Export meta information, such as timestep and mesh steps
 3. + When generating h5 file - remove those mesh parts that contain no signal (p_mask should be ones only if the mesh contains signal)
-4. Make number of timesteps between checkpoints a parameter as well
+4. + Make number of timesteps between checkpoints a parameter as well (As final sampling rate)
 5. + Verify that the wave propagates with the speed of sound
 6. Add GPU implementation of turbulent noise (sines). That way, the exported profile image will act as filtering surface.
 7. + Export WAV sound

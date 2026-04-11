@@ -1,4 +1,5 @@
 import os
+import json
 import numpy as np
 from Mesh import Mesh
 from PlaneReader import PlaneReader
@@ -26,6 +27,13 @@ print(dt, nt, ndivs)
 #             dx=0.001, dy=0.001, dz=0.0003, dt=dt)
 mesh = Mesh(nx=128, ny=128, nz=16, nt=nt,
             dx=0.001, dy=0.001, dz=0.0003, dt=dt)
+meta = {
+    'dt': dt,
+    'dx': mesh.dx,
+    'dy': mesh.dy,
+    'dz': mesh.dz
+}
+json.dump(meta, open('input_mesh/meta.json', 'w'), indent=4)
 source_drawer = SourceDrawer(
     mesh=mesh,
     plane_reader=plane_reader,

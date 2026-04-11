@@ -1095,8 +1095,7 @@ void KSpaceFirstOrderSolver::computeMainLoop()
 
   // Since disk operations are one step delayed, we have to do the last one here.
   // However, we need to check if the loop wasn't skipped due to very short checkpoint interval
-  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex() && (!mIsTimestepRightAfterRestore) &&
-        (mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex()) % mParameters.getSamplingPeriod() == 0)
+  if (mParameters.getTimeIndex() > mParameters.getSamplingStartTimeIndex() && (!mIsTimestepRightAfterRestore))
   {
     mOutputStreamContainer.flushRawStreams();
   }
@@ -1183,7 +1182,7 @@ void KSpaceFirstOrderSolver::storeSensorData()
   if (mParameters.getTimeIndex() >= mParameters.getSamplingStartTimeIndex() &&
         (mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex()) % mParameters.getSamplingPeriod() == 0)
   {
-    // std::cout << "Storing sensor data...-----------------------------------------" << std::endl;
+    std::cout << "Storing sensor data...----------------------------------------- " << mParameters.getTimeIndex() - mParameters.getSamplingStartTimeIndex() << std::endl;
     // Read event for t_index - 1. If sampling did not occur by then, ignored it.
     // If it did store data on disk (flush) - the GPU is running asynchronously.
     // But be careful, flush has to be one step delayed to work correctly.

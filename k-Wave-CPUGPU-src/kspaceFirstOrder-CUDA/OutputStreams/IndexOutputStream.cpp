@@ -90,13 +90,14 @@ void IndexOutputStream::create()
   int samplingPeriod = params.getSamplingPeriod();
   int checkpointTimesteps = params.getCheckpointTimeSteps();
   // +1 is in case checkpoint timesteps / sampling period has a reminder.
+  // Another +1 because a write will occur at 0s step.
   // This should not happen, otherwise the last sample will be out of its sampling period (e.g. not always 16 kHz).
-  size_t nSamples = params.getCheckpointTimeSteps() / params.getSamplingPeriod() + 1;
+  size_t nSamples = params.getCheckpointTimeSteps() / params.getSamplingPeriod() + 2;
   DimensionSizes datasetSize(nSampledElementsPerStep,
                              (mReduceOp == ReduceOperator::kNone)
                                 ? nSamples : 1,
                              1);
-  // std::cout << std::endl << "Creating dataset " << samplingPeriod << ' ' << checkpointTimesteps << ' ' << nSamples << std::endl;
+  std::cout << std::endl << "Creating dataset " << samplingPeriod << ' ' << checkpointTimesteps << ' ' << nSamples << std::endl;
 
   // Set HDF5 chunk size
   DimensionSizes chunkSize(nSampledElementsPerStep, 1, 1);
