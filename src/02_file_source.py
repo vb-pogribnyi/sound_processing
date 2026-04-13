@@ -21,7 +21,7 @@ import json
 
 SIM_BOX_RATIO_X = 5.0
 SIM_BOX_RATIO_Y = 6.0
-SAMPLING_RATE = 16000
+SAMPLING_RATE = 44000
 # SAMPLING_PERIOD = 9
 
 from kwave.utils.mapgen import make_disc
@@ -38,7 +38,7 @@ def add_source(source, grid, offset, signal, size=4):
     source.p = [p if p is not None or not m else signal_np for p, m in zip(source.p, signal_mask.reshape(-1))]
 
 
-def load_mesh(mesh_path, kgrid, N, Nt):
+def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     mesh = np.load(mesh_path)['arr_0']
     # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\input_mesh\\000.npy')
     source = kSource()
@@ -53,7 +53,25 @@ def load_mesh(mesh_path, kgrid, N, Nt):
     mesh_zend = mesh_zstart + mesh.shape[2]
     source.p_mask[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = 1
 
-    source.p = np.transpose(mesh, [2, 1, 0, 3]).reshape(-1, Nt)
+    # Generate a sine signal, scale with the values being read, write as a source
+    # out = np.zeros(mesh.shape, dtype = np.float16)
+    sf = 1000 # Generating 1 kHz signal
+    duration = Nt * kgrid.dt
+    tstart = tidx_start * kgrid.dt
+    # nloops = 
+    t = np.arange(tstart, tstart + duration, kgrid.dt)
+    y = 0.2*np.sin(2*np.pi * sf * t) + 1e-7
+    result = np.nan_to_num(mesh.real)
+    mesh_descr = mesh.imag.astype(int)
+
+    blade_idx = mesh_descr % 10
+    result[blade_idx != 0] = 0
+    result[result < 0] = 0
+    mult = np.ones_like(result)[:, :, :, 0]
+    result *= y[None, None, :]
+
+    # source.p = np.transpose(mesh.real.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
+    source.p = np.transpose(result.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
 
     return source
 
@@ -122,7 +140,7 @@ def main():
         print("------------- Using source:", source_idx)
         execution_options.input_file = os.path.join(proc_dir, f'input_{source_idx}.h5')
         simulation_options.execution_options = execution_options
-        source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt)
+        source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt, step_idx)
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
         start_idx = 0

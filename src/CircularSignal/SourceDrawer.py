@@ -26,7 +26,7 @@ class SourceDrawer:
         self.blade_t = blade_thickness
     
     # x, y, z are given as relative coordinates, from 0 to 1
-    def draw_blade(self, x, y, z, angle, t):
+    def draw_blade(self, x, y, z, angle, t, blade_idx=-1):
         # Build relation between the blade coordinates and
         # and the mesh cell.
 
@@ -147,6 +147,10 @@ class SourceDrawer:
             offset = 250
             debug_img = np.ones((offset*2, offset*2, 3), dtype=np.uint8) * 255
 
+        idxs_l = set()
+        idxs_t = set()
+        idxs_y = set()
+
         for idx_z in range(idx_zmin, idx_zmax + 1):
             for idx_x in range(idx_xmin, idx_xmax + 1):
                 for idx_y in range(idx_ymin, idx_ymax + 1):
@@ -172,7 +176,25 @@ class SourceDrawer:
                         is_reader_debug = False
                         mapped_value = self.plane_reader.sample(mapping_l, mapping_t, mapping_y,
                                                                 mapping_dt, mapping_dy, is_reader_debug)
-                        self.mesh.mesh[idx_x, idx_y, idx_z, t] = mapped_value
+                        # if np.isnan(mapped_value):
+                        #      mapped_value = 0
+                        assert mapping_l >= 0, "Wrong mapping index."
+                        assert mapping_l <= 1, "Wrong mapping index."
+                        assert mapping_t >= 0, "Wrong mapping index."
+                        assert mapping_t <= 1, "Wrong mapping index."
+                        assert mapping_y >= 0, "Wrong mapping index."
+                        assert mapping_y <= 1, "Wrong mapping index."
+                        mesh_idx_l = int(mapping_l * 10)
+                        mesh_idx_t = int(mapping_t * 10)
+                        mesh_idx_y = int(mapping_y * 10)
+                        idxs_l.add(mesh_idx_l)
+                        idxs_t.add(mesh_idx_t)
+                        idxs_y.add(mesh_idx_y)
+                        mesh_idx = blade_idx + 10*mesh_idx_l + 10*100*mesh_idx_t + 10*100*100*mesh_idx_y
+                        self.mesh.mesh[idx_x, idx_y, idx_z, t] = complex(mapped_value, float(mesh_idx))
+
+                        
+                        # self.mesh.mesh[idx_x, idx_y, idx_z, t] = mapped_value
                         
                         if DEBUG and idx_z == int((idx_zmin + idx_zmax) / 2)+2:
                             cv.circle(debug_img, 
@@ -203,7 +225,7 @@ class SourceDrawer:
                 if DEBUG:
                         print(f"({int(blade_angle * 100) / 100}) ", end='\t')
 
-                self.draw_blade(x, y, z, blade_angle, t_idx)
+                self.draw_blade(x, y, z, blade_angle, t_idx, blade_idx=i)
             
         #     if DEBUG:
         #             print('')

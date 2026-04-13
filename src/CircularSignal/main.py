@@ -7,7 +7,7 @@ from SourceDrawer import SourceDrawer
 
 plane_reader = PlaneReader('/app/src/CircularSignal/profiles/00_test')
 
-dt = 1e-7
+dt = 1e-6
 rpm = 3700
 rps = rpm / 60      # revolutions per second
 nblades=3
@@ -46,7 +46,7 @@ for mesh_idx in range(ndivs):
     mesh.mesh *= 0
     angle = source_drawer.draw(0.5, 0.5, 0.5, rpm=rpm, start_angle=angle)
 
-    # np.save(f'input_mesh/{str(mesh_idx).zfill(3)}.npy', mesh.mesh)
+    # current = np.nan_to_num(np.load(f'input_mesh/{str(mesh_idx).zfill(3)}.npz')['arr_0'])
     np.savez_compressed(f'input_mesh/{str(mesh_idx).zfill(3)}.npz', mesh.mesh)
 
 print('done')

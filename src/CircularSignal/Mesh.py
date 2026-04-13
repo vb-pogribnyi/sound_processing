@@ -2,7 +2,8 @@ import numpy as np
 
 class Mesh:
     def __init__(self, nx, ny, nz, nt, dx, dy, dz, dt):
-        self.mesh = np.zeros([nx, ny, nz, nt], dtype=np.float16)
+        self.mesh = np.zeros([nx, ny, nz, nt], dtype=np.complex64)
+        # self.mesh = np.zeros([nx, ny, nz, nt], dtype=np.float16)
         self.dx = dx
         self.dy = dy
         self.dz = dz
