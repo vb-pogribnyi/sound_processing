@@ -4,6 +4,7 @@
 *.jpg
 *.jpeg
 *.npy
+*.npz
 *.h5
 processing
 outputs

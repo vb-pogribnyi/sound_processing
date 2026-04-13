@@ -39,7 +39,7 @@ def add_source(source, grid, offset, signal, size=4):
 
 
 def load_mesh(mesh_path, kgrid, N, Nt):
-    mesh = np.load(mesh_path)
+    mesh = np.load(mesh_path)['arr_0']
     # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\input_mesh\\000.npy')
     source = kSource()
     source.p_mask = np.zeros([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
@@ -59,14 +59,14 @@ def load_mesh(mesh_path, kgrid, N, Nt):
 
 def main():
     # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\draw_mesh.npy')
-    mesh = np.load('/app/input_mesh//000.npy')
+    # mesh = np.load('/app/input_mesh//000.npz')['arr_0']
     mesh_meta = json.load(open('/app/input_mesh/meta.json'))
     # grid properties
-    N = Vector([int(mesh.shape[0]*SIM_BOX_RATIO_X), int(mesh.shape[1]*SIM_BOX_RATIO_Y), int(mesh.shape[2]*2)])
+    N = Vector([int(mesh_meta['nx']*SIM_BOX_RATIO_X), int(mesh_meta['ny']*SIM_BOX_RATIO_Y), int(mesh_meta['nz']*2)])
     d = Vector([mesh_meta['dx'], mesh_meta['dy'], mesh_meta['dz']])
     kgrid = kWaveGrid(N, d)
     kgrid.dt = mesh_meta['dt']
-    Nt = mesh.shape[3]
+    Nt = mesh_meta['nt']
     kgrid.Nt = Nt * 1000
     sampling_period = int(1 / SAMPLING_RATE / kgrid.dt)
 
@@ -77,15 +77,15 @@ def main():
     medium.density = 1
     # kgrid.makeTime(np.min(medium.sound_speed))
 
-    sources = []
+    # sources = []
     src_files = {}
     for f in os.scandir('input_mesh'):
-        if f.name.split('.')[-1] == 'npy':
+        if f.name.split('.')[-1] == 'npz':
             src_files[f.name.split('.')[0]] = f.path
 
     fnames = sorted(list(src_files.keys()))
-    for fname in tqdm(fnames):
-        sources.append(load_mesh(src_files[fname], kgrid, N, Nt))
+    # for fname in tqdm(fnames):
+    #     sources.append(load_mesh(src_files[fname], kgrid, N, Nt))
 
     sensor = kSensor()
     sensor.mask = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
@@ -118,12 +118,12 @@ def main():
         n_samples_ready = len([f.name for f in os.scandir('/app/outputs')])
     out_idx = n_samples_ready
     for step_idx in range(start_step_idx, 1000000):
-        # TODO: Open checkpoint file and read the time index it has stopped at.
-        source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % len(sources)
+        source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % len(src_files)
         print("------------- Using source:", source_idx)
         execution_options.input_file = os.path.join(proc_dir, f'input_{source_idx}.h5')
         simulation_options.execution_options = execution_options
-        output = kspaceFirstOrder3D(kgrid, sources[source_idx], sensor, medium, simulation_options, execution_options)
+        source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt)
+        output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
         start_idx = 0
         if np.sum(sensor_data[:, :, :, 0]) == 0:
