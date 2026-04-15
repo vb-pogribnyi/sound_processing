@@ -1,6 +1,6 @@
 ## Run container
 ``` bash
-docker run --gpus all --name kwave -v /home/vitalii/Desktop/Projects/KWave:/app -it kwave:04apr2026-2 bash
+docker run --gpus all --name kwave -v /home/vitalii/Desktop/Projects/KWave:/app --tmpfs /inputs:size=4G -it kwave:05apr2026 bash
 ```
 Compile kwave as:
 ``` bash

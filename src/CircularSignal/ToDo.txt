@@ -8,4 +8,5 @@
 8. + For profile generation - be more clear about the dimientions of the box.
 9. + Make CUDA app output multiple frames at different time, so that it's not required to re-start so often.
 10. Include source speed, so that doppler effect is applied.
-11. Use tmpfs (ram-based) for generating inputs into kwave
+11. + Use tmpfs (ram-based) for generating inputs into kwave
+12. Make sure that the frequency is correct and dimensions are right.

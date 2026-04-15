@@ -8,10 +8,11 @@ from scipy.signal import stft, istft
 from scipy.io.wavfile import write
 
 z_idx = 16
-sig_length = 2048
-start_point = 0
+sig_length = 1024*8
+start_point = 500
+sample_rate = 44000
 end_point = start_point + sig_length
-IS_DRAW = True
+IS_DRAW = False
 files = {}
 mic_position = [256, 0]
 os.makedirs('slices', exist_ok=True)
@@ -42,7 +43,7 @@ for fname in tqdm(fnames):
         cv.imwrite(os.path.join('slices', f'{fname}.png'), slice.astype(np.uint8))
 
 N = end_point - start_point
-T = 1 / 16000
+T = 1 / sample_rate
 x = np.linspace(0.0, N*T, N, endpoint=False)
 yf = fft(mic_values)
 xf = fftfreq(N, T)[:N//2]
@@ -69,7 +70,7 @@ plt.close()
 
 sig_norm = y / np.max(np.abs(y))
 sig_int16 = (sig_norm * 1024*8).astype(np.int16)
-write("/app/output.wav", 16000, sig_int16)
+write("/app/output.wav", sample_rate, sig_int16)
 
 ext_start = 5568
 mic_values = np.real(y[ext_start:ext_start + sig_length*4])

@@ -10,8 +10,8 @@ plane_reader = PlaneReader('/app/src/CircularSignal/profiles/00_test')
 dt = 1e-6
 rpm = 3700
 rps = rpm / 60      # revolutions per second
-nblades=3
-ndivs = 10
+nblades=1
+ndivs = 25
 tmax = 1 / rps / nblades / ndivs      # time of 1 revolution
 nt = int(tmax / dt)
 print(dt, nt, ndivs)

@@ -58,8 +58,7 @@ def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     sf = 1000 # Generating 1 kHz signal
     duration = Nt * kgrid.dt
     tstart = tidx_start * kgrid.dt
-    # nloops = 
-    t = np.arange(tstart, tstart + duration, kgrid.dt)
+    t = np.linspace(tstart, tstart + duration, mesh.shape[-1])
     y = 0.2*np.sin(2*np.pi * sf * t) + 1e-7
     result = np.nan_to_num(mesh.real)
     mesh_descr = mesh.imag.astype(int)
@@ -67,8 +66,8 @@ def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     blade_idx = mesh_descr % 10
     result[blade_idx != 0] = 0
     result[result < 0] = 0
-    mult = np.ones_like(result)[:, :, :, 0]
-    result *= y[None, None, :]
+    # mult = np.ones_like(result)[:, :, :, 0]
+    result *= y[None, None, None, :]
 
     # source.p = np.transpose(mesh.real.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
     source.p = np.transpose(result.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
@@ -113,9 +112,11 @@ def main():
     )
 
     execution_options = SimulationExecutionOptions(is_gpu_simulation=True)
-    proc_dir = '/app/processing'
+    proc_dir = '/inputs/processing'
+    bkp_proc_dir = '/app/processing'
     result_dir = os.path.join(proc_dir, '/app/outputs')
     os.makedirs(proc_dir, exist_ok=True)
+    os.makedirs(bkp_proc_dir, exist_ok=True)
     os.makedirs(result_dir, exist_ok=True)
     execution_options.checkpoint_file = os.path.join(proc_dir, 'ckpt.h5')
     # Every mesh file processes at one go.
@@ -127,11 +128,12 @@ def main():
     ckpt_time = 0
     n_samples_ready = 0
     start_step_idx = 0
+    bkp_ckpt_file = str(execution_options.checkpoint_file).replace(proc_dir, bkp_proc_dir) + '.bkp'
     if os.path.exists(execution_options.checkpoint_file):
-        with h5py.File(str(execution_options.checkpoint_file) + '.bkp', 'r') as f:
+        with h5py.File(bkp_ckpt_file, 'r') as f:
             ckpt_time = f['t_index'][0][0, 0]
             start_step_idx = int(ckpt_time/execution_options.checkpoint_timesteps)
-        shutil.copy(str(execution_options.checkpoint_file) + '.bkp', execution_options.checkpoint_file)
+        shutil.copy(bkp_ckpt_file, execution_options.checkpoint_file)
     if os.path.exists('/app/outputs'):
         n_samples_ready = len([f.name for f in os.scandir('/app/outputs')])
     out_idx = n_samples_ready
@@ -142,6 +144,7 @@ def main():
         simulation_options.execution_options = execution_options
         source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt, step_idx)
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
+        os.remove(execution_options.input_file)
         sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
         start_idx = 0
         if np.sum(sensor_data[:, :, :, 0]) == 0:
@@ -166,7 +169,7 @@ def main():
             break
         else:
             # If the outputs were saved successfully, save the checkpoint file in case if something goes wrong.
-            shutil.copy(execution_options.checkpoint_file, str(execution_options.checkpoint_file) + '.bkp')
+            shutil.copy(execution_options.checkpoint_file, bkp_ckpt_file)
 
 
 
