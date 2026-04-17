@@ -21,8 +21,21 @@ import json
 
 SIM_BOX_RATIO_X = 5.0
 SIM_BOX_RATIO_Y = 6.0
-SAMPLING_RATE = 44000
+SAMPLING_RATE = 16000
 # SAMPLING_PERIOD = 9
+
+def get_density(kgrid):
+    result = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=float) * 1
+    result[200:-200, 260:570, :] = 10
+
+    return result
+
+def get_c(kgrid):
+    result = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=float) * 120
+    result[10:-10:, 280:, :] = 250
+
+    return result
+
 
 from kwave.utils.mapgen import make_disc
 def add_source(source, grid, offset, signal, size=4):
@@ -70,7 +83,7 @@ def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     result *= y[None, None, None, :]
 
     # source.p = np.transpose(mesh.real.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
-    source.p = np.transpose(result.astype(np.float16), [2, 1, 0, 3]).reshape(-1, Nt)
+    source.p = np.transpose(result.astype(np.float64), [2, 1, 0, 3]).reshape(-1, Nt)
 
     return source
 
@@ -90,8 +103,9 @@ def main():
     # medium properties
     # medium = kWaveMedium(sound_speed=np.ones(kgrid.k.shape) * 343)
     # medium.density = np.ones(kgrid.k.shape) * 1000
-    medium = kWaveMedium(sound_speed=343)
-    medium.density = 1
+    medium = kWaveMedium(sound_speed=get_c(kgrid))
+    # medium = kWaveMedium(sound_speed=343)
+    medium.density = get_density(kgrid)
     # kgrid.makeTime(np.min(medium.sound_speed))
 
     # sources = []

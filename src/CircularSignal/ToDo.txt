@@ -7,6 +7,12 @@
 7. + Export WAV sound
 8. + For profile generation - be more clear about the dimientions of the box.
 9. + Make CUDA app output multiple frames at different time, so that it's not required to re-start so often.
-10. Include source speed, so that doppler effect is applied.
+10. - Include source speed, so that doppler effect is applied.
 11. + Use tmpfs (ram-based) for generating inputs into kwave
 12. Make sure that the frequency is correct and dimensions are right.
+13. Add density and sound speed variations
+14. Weird shifts at certain moments?
+15. If a ckpt exists but the .bak does not - discard the checkpoint and start over.
+16. Calculate whether to record the first time step in a correct way (currently it's checking if the output is empty, 
+        if np.sum(sensor_data[:, :, :, 0]) == 0:
+            start_idx = 1)

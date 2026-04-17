@@ -9,10 +9,10 @@ from scipy.io.wavfile import write
 
 z_idx = 16
 sig_length = 1024*8
-start_point = 500
+start_point = 0
 sample_rate = 44000
 end_point = start_point + sig_length
-IS_DRAW = False
+IS_DRAW = True
 files = {}
 mic_position = [256, 0]
 os.makedirs('slices', exist_ok=True)
