@@ -43,6 +43,8 @@ for fname in tqdm(fnames):
         cv.imwrite(os.path.join('slices', f'{fname}.png'), slice.astype(np.uint8))
 
 N = end_point - start_point
+if len(mic_values) < N:
+    exit(0)
 T = 1 / sample_rate
 x = np.linspace(0.0, N*T, N, endpoint=False)
 yf = fft(mic_values)

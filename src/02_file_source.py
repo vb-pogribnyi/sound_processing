@@ -18,42 +18,14 @@ from kwave.kspaceFirstOrder3D import kspaceFirstOrder3D
 from kwave.options.simulation_execution_options import SimulationExecutionOptions
 from kwave.options.simulation_options import SimulationOptions
 import json
+from utils import spheres_noise
 
 SIM_BOX_RATIO_X = 5.0
 SIM_BOX_RATIO_Y = 6.0
 SAMPLING_RATE = 16000
-# SAMPLING_PERIOD = 9
-
-def get_density(kgrid):
-    result = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=float) * 1
-    result[200:-200, 260:570, :] = 10
-
-    return result
-
-def get_c(kgrid):
-    result = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=float) * 120
-    result[10:-10:, 280:, :] = 250
-
-    return result
-
-
-from kwave.utils.mapgen import make_disc
-def add_source(source, grid, offset, signal, size=4):
-    if source.p_mask is None:
-        source.p_mask = np.zeros(Vector([grid.Nx, grid.Ny]))
-    if source.p is None:
-        source.p = [None for _ in range(source.p_mask.size)]
-    signal_np = np.zeros(grid.Nt)
-    signal = signal[:grid.Nt]
-    signal_np[:len(signal)] = signal
-    signal_mask = make_disc(Vector([grid.Nx, grid.Ny]), Vector([offset[0], offset[1]]), size)
-    source.p_mask = np.logical_or(source.p_mask, signal_mask)
-    source.p = [p if p is not None or not m else signal_np for p, m in zip(source.p, signal_mask.reshape(-1))]
-
 
 def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     mesh = np.load(mesh_path)['arr_0']
-    # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\input_mesh\\000.npy')
     source = kSource()
     source.p_mask = np.zeros([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
     mesh_xstart = int(N.x // 2 - mesh.shape[0] // 2)
@@ -67,7 +39,6 @@ def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     source.p_mask[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = 1
 
     # Generate a sine signal, scale with the values being read, write as a source
-    # out = np.zeros(mesh.shape, dtype = np.float16)
     sf = 1000 # Generating 1 kHz signal
     duration = Nt * kgrid.dt
     tstart = tidx_start * kgrid.dt
@@ -88,8 +59,6 @@ def load_mesh(mesh_path, kgrid, N, Nt, tidx_start):
     return source
 
 def main():
-    # mesh = np.load('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\REPOS\\00_MINE\\CircularSignal\\draw_mesh.npy')
-    # mesh = np.load('/app/input_mesh//000.npz')['arr_0']
     mesh_meta = json.load(open('/app/input_mesh/meta.json'))
     # grid properties
     N = Vector([int(mesh_meta['nx']*SIM_BOX_RATIO_X), int(mesh_meta['ny']*SIM_BOX_RATIO_Y), int(mesh_meta['nz']*2)])
@@ -100,23 +69,15 @@ def main():
     kgrid.Nt = Nt * 1000
     sampling_period = int(1 / SAMPLING_RATE / kgrid.dt)
 
-    # medium properties
-    # medium = kWaveMedium(sound_speed=np.ones(kgrid.k.shape) * 343)
-    # medium.density = np.ones(kgrid.k.shape) * 1000
-    medium = kWaveMedium(sound_speed=get_c(kgrid))
-    # medium = kWaveMedium(sound_speed=343)
-    medium.density = get_density(kgrid)
-    # kgrid.makeTime(np.min(medium.sound_speed))
+    medium = kWaveMedium(sound_speed=spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png'))
+    medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
 
-    # sources = []
     src_files = {}
     for f in os.scandir('input_mesh'):
         if f.name.split('.')[-1] == 'npz':
             src_files[f.name.split('.')[0]] = f.path
 
     fnames = sorted(list(src_files.keys()))
-    # for fname in tqdm(fnames):
-    #     sources.append(load_mesh(src_files[fname], kgrid, N, Nt))
 
     sensor = kSensor()
     sensor.mask = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)

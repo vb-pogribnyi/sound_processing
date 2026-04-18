@@ -27,14 +27,16 @@
             "type": "debugpy",
             "request": "launch",
             "program": "/app/src/draw_outputs.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "preLaunchTask": "clear_slices"
         },
         {
             "name": "FileSource",
             "type": "debugpy",
             "request": "launch",
             "program": "/app/src/02_file_source.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "preLaunchTask": "clear_kwave"
         },
         {
             "name": "GenerateProfile",

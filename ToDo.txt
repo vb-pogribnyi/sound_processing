@@ -1,3 +1,5 @@
+--------------------------- GENERAL ------------------------------------
+
 1. - Profile generation - make number of timesteps parameter; the timestep itself is to be calculated. 
 2. + Export meta information, such as timestep and mesh steps
 3. + When generating h5 file - remove those mesh parts that contain no signal (p_mask should be ones only if the mesh contains signal)
@@ -10,9 +12,16 @@
 10. - Include source speed, so that doppler effect is applied.
 11. + Use tmpfs (ram-based) for generating inputs into kwave
 12. Make sure that the frequency is correct and dimensions are right.
-13. Add density and sound speed variations
+13. + Add density and sound speed variations
 14. Weird shifts at certain moments?
 15. If a ckpt exists but the .bak does not - discard the checkpoint and start over.
-16. Calculate whether to record the first time step in a correct way (currently it's checking if the output is empty, 
-        if np.sum(sensor_data[:, :, :, 0]) == 0:
-            start_idx = 1)
+16. Calculate whether to record the first time step in a correct way (currently it's checking if the output is empty.
+
+--------------------------- USABILITY ------------------------------------
+
+1. Create folder for every experiment.
+2. Read from config file.
+3. Allow multiple meshes at configurable locations
+4. Configure the masked sine signal
+5. Export GIFs for configurable slices.
+6. Export WAVs at configurable locations.
