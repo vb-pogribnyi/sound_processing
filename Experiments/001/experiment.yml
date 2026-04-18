@@ -1,0 +1,34 @@
+description: Test experiment
+sampling: 16000         # 16 kHz sampling rate
+time: 0.003             # overall time, in seconds
+export:
+  x_start: 0
+  x_end: 479
+  y_start: 800
+  y_end: 1023
+  z_start: 0
+  z_end: 23
+mesh:
+  size_x: 480
+  size_y: 1024
+  size_z: 24
+slices:
+  - axis: z
+    position: 12
+  - axis: z
+    position: 22
+sources:
+  - type: test
+    x: 120
+    y: 150
+    z: 12
+    freq: 1000
+    amplitude: 0.2
+    phase: 0
+  - type: test  # name in the input_mesh folder
+    x: 250
+    y: 150
+    z: 12
+    freq: 1120
+    amplitude: 0.35
+    phase: 0.33

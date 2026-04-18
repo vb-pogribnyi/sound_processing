@@ -16,6 +16,7 @@
 14. Weird shifts at certain moments?
 15. If a ckpt exists but the .bak does not - discard the checkpoint and start over.
 16. Calculate whether to record the first time step in a correct way (currently it's checking if the output is empty.
+17. Faster generation of profile meshes
 
 --------------------------- USABILITY ------------------------------------
 
