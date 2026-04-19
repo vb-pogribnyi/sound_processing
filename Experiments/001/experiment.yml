@@ -1,6 +1,6 @@
 description: Test experiment
 sampling: 16000         # 16 kHz sampling rate
-time: 0.003             # overall time, in seconds
+time: 0.3               # overall time, in seconds
 export:
   x_start: 0
   x_end: 479
@@ -12,6 +12,10 @@ mesh:
   size_x: 480
   size_y: 1024
   size_z: 24
+  dx: 0.00234
+  dy: 0.00234
+  dz: 0.000625
+  dt: 1e-06
 slices:
   - axis: z
     position: 12
@@ -21,14 +25,14 @@ sources:
   - type: test
     x: 120
     y: 150
-    z: 12
+    z: 4
     freq: 1000
     amplitude: 0.2
     phase: 0
   - type: test  # name in the input_mesh folder
     x: 250
     y: 150
-    z: 12
+    z: 4
     freq: 1120
     amplitude: 0.35
     phase: 0.33

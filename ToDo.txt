@@ -26,3 +26,4 @@
 4. Configure the masked sine signal
 5. Export GIFs for configurable slices.
 6. Export WAVs at configurable locations.
+7. Allow source meshes with different number of time points
