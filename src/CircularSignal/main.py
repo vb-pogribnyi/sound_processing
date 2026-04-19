@@ -11,7 +11,7 @@ dt = 1e-6
 rpm = 3700
 rps = rpm / 60      # revolutions per second
 nblades=1
-ndivs = 25
+ndivs = 50
 tmax = 1 / rps / nblades / ndivs      # time of 1 revolution
 nt = int(tmax / dt)
 print(dt, nt, ndivs)
