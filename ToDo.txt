@@ -20,10 +20,11 @@
 
 --------------------------- USABILITY ------------------------------------
 
-1. Create folder for every experiment.
-2. Read from config file.
-3. Allow multiple meshes at configurable locations
-4. Configure the masked sine signal
-5. Export GIFs for configurable slices.
+1. + Create folder for every experiment.
+2. + Read from config file.
+3. + Allow multiple meshes at configurable locations
+4. + Configure the masked sine signal
+5. + Export GIFs for configurable slices.
 6. Export WAVs at configurable locations.
 7. Allow source meshes with different number of time points
+8. Use separate thread or process for the GIF generation

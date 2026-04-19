@@ -3,8 +3,10 @@ import yaml
 import json
 import h5py
 import shutil
+import cv2 as cv
 import numpy as np
 from pathlib import Path
+from PIL import Image
 import sys
 sys.path.append('/app')
 from utils import spheres_noise
@@ -17,6 +19,30 @@ from kwave.ksource import kSource
 from kwave.kspaceFirstOrder3D import kspaceFirstOrder3D
 from kwave.options.simulation_execution_options import SimulationExecutionOptions
 from kwave.options.simulation_options import SimulationOptions
+
+def save_slice_img(slice, dirname, out_idx):
+    os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
+    slice = np.stack([slice, np.zeros_like(slice), slice], axis=-1)
+    slice[:, :, 2] *= -1
+    slice[slice < 0] = 0
+    slice[slice < 1e-45] = 1e-45
+    slice = (100 + np.log(slice)) * 1.5
+    slice[slice < 0] = 0
+    # slice[mic_position[0], mic_position[1], 1] = 255
+    cv.imwrite(os.path.join(dirname, 'frames', f'{str(out_idx).zfill(5)}.png'), slice.astype(np.uint8))
+
+    frames = [Image.open(p).convert("RGBA") for p in sorted([f.path for f in os.scandir(os.path.join(dirname, 'frames'))])]
+
+    frames[0].save(
+        os.path.join(dirname, 'slice.gif'),
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=30,       # milliseconds per frame
+        loop=0,
+        optimize=True,
+        disposal=2,  # clear each frame before drawing the next
+    )
 
 
 def load_source(source, source_cfg, source_idx, tidx_start, source_bounds):
@@ -42,7 +68,7 @@ def load_source(source, source_cfg, source_idx, tidx_start, source_bounds):
         source_bounds['y'][1] - source_bounds['y'][0],
         source_bounds['z'][1] - source_bounds['z'][0],
         Nt
-    ], dtype=np.float64)
+    ], dtype=np.float32)
 
     # Generate a sine signal, scale with the values being read, write as a source
     sf = source_cfg['freq']
@@ -166,7 +192,7 @@ def run_experiment(base_path, config):
         source.p_mask[xmin:xmax, ymin:ymax, zmin:zmax] = 1
         n_src_points = (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
         assert n_src_points == source.p_mask.sum(), "Something wrong with source mask"
-        source.p = np.zeros([n_src_points, Nt], dtype=np.float64)
+        source.p = np.zeros([n_src_points, Nt], dtype=np.float32)
         for source_cfg in config['sources']:
             load_source(source, source_cfg, source_idx, step_idx, source_bounds)
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
@@ -182,8 +208,29 @@ def run_experiment(base_path, config):
         # assert np.sum(np.abs(sensor_data[:, :, :, start_idx + n_samples_prepared:])) == 0, "Skipping nonempty samples."
         n_samples_ready += n_samples_prepared
         for timestep_idx in range(start_idx, start_idx + n_samples_prepared):
-            np.save(os.path.join(result_dir, f'{str(out_idx).zfill(5)}.npy'), sensor_data[16, :, :, timestep_idx])
-            assert np.sum(sensor_data[16, :, :, timestep_idx]) != 0, "Something has gone wrong."
+            # TODO: Read and complete (or re-generate) the gif(s)
+            exported_sources = sensor_data[
+                config['export']['z_start']:config['export']['z_end'], 
+                config['export']['y_start']:config['export']['y_end'], 
+                config['export']['x_start']:config['export']['x_end'], 
+                timestep_idx
+            ]
+            np.save(os.path.join(result_dir, f'{str(out_idx).zfill(5)}.npy'), exported_sources)
+            assert np.sum(exported_sources) != 0, "Something has gone wrong."
+            for i, slice in enumerate(config['slices']):
+                dirname = os.path.join(base_path, 'slices', str(i).zfill(3))
+                if slice['axis'] == 'x':
+                    assert int(slice['position']) < sensor_data.shape[2]
+                    slice_data = sensor_data[:, :, int(slice['position']), timestep_idx]
+                elif slice['axis'] == 'y':
+                    assert int(slice['position']) < sensor_data.shape[1]
+                    slice_data = sensor_data[:, int(slice['position']), :, timestep_idx]
+                elif slice['axis'] == 'z':
+                    assert int(slice['position']) < sensor_data.shape[0]
+                    slice_data = sensor_data[int(slice['position']), :, :, timestep_idx]
+                else:
+                    assert False, "Invalid export slice!"
+                save_slice_img(slice_data, dirname, out_idx)
             out_idx += 1
         # Check if the number of files generated matches the one recorded in checkpoint
         with h5py.File(str(execution_options.checkpoint_file), 'r') as f:
