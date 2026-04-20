@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+from PIL import Image
 from scipy.interpolate import interp1d
 
 class MeshReader:
@@ -14,6 +15,7 @@ class MeshReader:
         for f in os.scandir(path):
             if f.name.split('.')[-1] == 'npz':
                 self.files.append(f.path)
+        self.files = sorted(self.files)
         assert len(self.files) > 0, "No input files found!"
 
     
@@ -33,6 +35,7 @@ class MeshReader:
         fidx = file_start
         data = []
         while True:
+            print('Loading file', self.files[fidx])
             data.append(np.load(self.files[fidx])['arr_0'])
             if fidx == file_end:
                 break
@@ -48,6 +51,10 @@ class MeshReader:
             old_time_end += steps_overall
         old_times = np.arange(old_time_start, old_time_end, 1) * speed
         new_times = np.arange(timestep_start, timestep_end, 1)
+        while np.max(old_times) < np.max(new_times):
+            old_times += steps_overall * speed
+        assert np.min(old_times) <= np.min(new_times), "Wrong time scaling"
+        assert np.max(old_times) >= np.max(new_times), "Wrong time scaling"
         interp = interp1d(
             old_times, data.reshape(-1, data.shape[-1]),
             axis=1,           # interpolate along the time axis
@@ -61,5 +68,38 @@ class MeshReader:
 
 if __name__ == '__main__':
     reader = MeshReader('/app/input_mesh/test2')
-    reader.sample(1.1, 300, 400)
-    reader.sample(1.001, 16100, 16300)
+    step = 400
+    out_step = 15
+    idx_start = 0
+
+    images = None
+
+    def process_images(imgs):
+        global images
+        if images is None:
+            images = imgs
+        else:
+            images = np.concatenate([images, imgs], axis=0)
+        
+        pil_frames = [Image.fromarray(f) for f in images]
+        pil_frames[0].save(
+            '/app/speed_noise.gif',
+            format="GIF",
+            save_all=True,
+            append_images=pil_frames[1:],
+            duration=25,
+            loop=0,
+            optimize=True,
+            disposal=2,
+        )
+
+
+    while idx_start < 50000:
+        print("Processing index", idx_start)
+        slow = reader.sample(0.95, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
+        print('----')
+        normal = reader.sample(1.0, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
+        print('----')
+        fast = reader.sample(1.05, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
+        process_images(np.concatenate([slow, normal, fast], axis=1).transpose(2, 0, 1))
+        idx_start += step
