@@ -22,17 +22,19 @@ slices:
   - axis: z
     position: 22
 sources:
-  - type: test
+  - type: test2
+    speed: 0.8
     x: 120
     y: 150
     z: 4
     freq: 1000
     amplitude: 0.2
     phase: 0
-  - type: test  # name in the input_mesh folder
+  - type: test2  # name in the input_mesh folder
+    speed: 1.4
     x: 250
     y: 150
     z: 4
     freq: 1120
-    amplitude: 0.35
+    amplitude: 0.15
     phase: 0.33

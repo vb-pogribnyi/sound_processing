@@ -20,6 +20,7 @@ class MeshReader:
 
     
     def sample(self, speed, timestep_start, timestep_end):
+        speed = 1 / speed   # So that speed of, e.g. 1.1 is faster, 0.9 is slower
         # Rescale to the input timesteps
         in_timestep_start = timestep_start / speed
         in_timestep_end = timestep_end / speed

@@ -23,6 +23,13 @@
             "preLaunchTask": "clear_exp001"
         },
         {
+            "name": "ExportExperiment",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/src/exporter.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "MeshReader",
             "type": "debugpy",
             "request": "launch",

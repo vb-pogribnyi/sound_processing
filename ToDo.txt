@@ -26,5 +26,7 @@
 4. + Configure the masked sine signal
 5. + Export GIFs for configurable slices.
 6. Export WAVs at configurable locations.
-7. Allow source meshes with different number of time points
+7. + Allow source meshes with different number of time points
 8. Use separate thread or process for the GIF generation
+9. Load the NPZ inputs simultaneously in different threads
+10. Load the inputs for the next step in advance.

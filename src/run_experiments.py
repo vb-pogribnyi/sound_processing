@@ -19,6 +19,10 @@ from kwave.ksource import kSource
 from kwave.kspaceFirstOrder3D import kspaceFirstOrder3D
 from kwave.options.simulation_execution_options import SimulationExecutionOptions
 from kwave.options.simulation_options import SimulationOptions
+from CircularSignal.MeshReader import MeshReader
+
+
+Nt = 512
 
 def save_slice_img(slice, dirname, out_idx):
     os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
@@ -45,17 +49,18 @@ def save_slice_img(slice, dirname, out_idx):
     )
 
 
-def load_source(source, source_cfg, source_idx, tidx_start, source_bounds):
+def load_source(source, source_cfg, time_start, time_end, mesh_reader, source_bounds):
     src_files = {}
     mesh_meta = json.load(open(os.path.join('/app/input_mesh', source_cfg['type'], 'meta.json')))
     dt = float(mesh_meta['dt'])
     for f in os.scandir(os.path.join('/app/input_mesh', source_cfg['type'])):
         if f.name.split('.')[-1] == 'npz':
             src_files[f.name.split('.')[0]] = f.path
-    fnames = sorted(list(src_files.keys()))
-    mesh_path = src_files[fnames[source_idx]]
+    # fnames = sorted(list(src_files.keys()))
+    # mesh_path = src_files[fnames[source_idx]]
 
-    mesh = np.load(mesh_path)['arr_0']
+    # mesh = np.load(mesh_path)['arr_0']
+    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
     mesh_xend = mesh_xstart + mesh.shape[0]
     mesh_ystart = int(source_cfg['y'] - source_bounds['y'][0])
@@ -73,7 +78,7 @@ def load_source(source, source_cfg, source_idx, tidx_start, source_bounds):
     # Generate a sine signal, scale with the values being read, write as a source
     sf = source_cfg['freq']
     duration = Nt * dt
-    tstart = tidx_start * dt
+    tstart = time_start * dt
     t = np.linspace(tstart, tstart + duration, mesh.shape[-1]) + source_cfg['phase']
     y = source_cfg['amplitude'] * np.sin(2 * np.pi * sf * t) + 1e-7
     result = np.nan_to_num(mesh.real)
@@ -104,30 +109,32 @@ def run_experiment(base_path, config):
         os.makedirs(os.path.join(base_path, 'slices', str(i).zfill(3)), exist_ok=True)
 
     # Load sources
-    Nt = None
-    nsources = None
+    # nsources = None
     xmin, xmax = None, None
     ymin, ymax = None, None
     zmin, zmax = None, None
+    mesh_readers = {}
     for source in config['sources']:
-        src_files = {}
+        # src_files = {}
         mesh_meta = json.load(open(os.path.join('/app/input_mesh', source['type'], 'meta.json')))
-        for f in os.scandir(os.path.join('/app/input_mesh', source['type'])):
-            if Nt == None:
-                Nt = mesh_meta['nt']
-            assert mesh_meta['nt'] == Nt, "Number of timesteps must match for each mesh"
-            assert mesh_meta['dx'] == config['mesh']['dx'], "DX for source mesh must match computational mesh"
-            assert mesh_meta['dy'] == config['mesh']['dy'], "DY for source mesh must match computational mesh"
-            assert mesh_meta['dz'] == config['mesh']['dz'], "DZ for source mesh must match computational mesh"
-            xmin, xmax = get_mesh_bounds(xmin, xmax, source, mesh_meta, 'x', 'nx')
-            ymin, ymax = get_mesh_bounds(ymin, ymax, source, mesh_meta, 'y', 'ny')
-            zmin, zmax = get_mesh_bounds(zmin, zmax, source, mesh_meta, 'z', 'nz')
-            if f.name.split('.')[-1] == 'npz':
-                src_files[f.name.split('.')[0]] = f.path
+        # assert mesh_meta['nt'] == Nt, "Number of timesteps must match for each mesh"
+        assert mesh_meta['dx'] == config['mesh']['dx'], "DX for source mesh must match computational mesh"
+        assert mesh_meta['dy'] == config['mesh']['dy'], "DY for source mesh must match computational mesh"
+        assert mesh_meta['dz'] == config['mesh']['dz'], "DZ for source mesh must match computational mesh"
+        xmin, xmax = get_mesh_bounds(xmin, xmax, source, mesh_meta, 'x', 'nx')
+        ymin, ymax = get_mesh_bounds(ymin, ymax, source, mesh_meta, 'y', 'ny')
+        zmin, zmax = get_mesh_bounds(zmin, zmax, source, mesh_meta, 'z', 'nz')
+        if not source['type'] in mesh_readers:
+            mesh_readers[source['type']] = MeshReader(os.path.join('/app/input_mesh', source['type']))
+        # for f in os.scandir(os.path.join('/app/input_mesh', source['type'])):
+            # if Nt == None:
+            #     Nt = mesh_meta['nt']
+            # if f.name.split('.')[-1] == 'npz':
+            #     src_files[f.name.split('.')[0]] = f.path
         # fnames = sorted(list(src_files.keys()))
-        if nsources is None:
-            nsources = len(src_files)
-        assert nsources == len(src_files), "Number of mesh files must match across sources."
+        # if nsources is None:
+        #     nsources = len(src_files)
+        # assert nsources == len(src_files), "Number of mesh files must match across sources."
     assert xmin is not None and xmax is not None, "No sources loaded!"
     assert ymin is not None and ymax is not None, "No sources loaded!"
     assert zmin is not None and zmax is not None, "No sources loaded!"
@@ -181,10 +188,11 @@ def run_experiment(base_path, config):
     if os.path.exists('/app/outputs'):
         n_samples_ready = len([f.name for f in os.scandir('/app/outputs')])
     out_idx = n_samples_ready
+    current_time = ckpt_time
     for step_idx in range(start_step_idx, 1000000):
-        source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % nsources
-        print("------------- Using source:", source_idx)
-        execution_options.input_file = os.path.join(proc_dir, f'input_{source_idx}.h5')
+        # source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % nsources
+        # print("------------- Using source:", source_idx)
+        execution_options.input_file = os.path.join(proc_dir, f'input_{step_idx}.h5')
         simulation_options.execution_options = execution_options
         # source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt, step_idx)
         source = kSource()
@@ -194,9 +202,10 @@ def run_experiment(base_path, config):
         assert n_src_points == source.p_mask.sum(), "Something wrong with source mask"
         source.p = np.zeros([n_src_points, Nt], dtype=np.float32)
         for source_cfg in config['sources']:
-            load_source(source, source_cfg, source_idx, step_idx, source_bounds)
+            load_source(source, source_cfg, current_time, current_time + Nt, mesh_readers[source_cfg['type']], source_bounds)
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         os.remove(execution_options.input_file)
+        current_time = output['t_index']
         sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
         start_idx = 0
         if np.sum(sensor_data[:, :, :, 0]) == 0:
