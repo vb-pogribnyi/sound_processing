@@ -11,7 +11,7 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
     exp_output_path = os.path.join('/app/Experiments', experiment, 'outputs')
     assert os.path.exists(exp_descr_path), "Invalid experiment"
     assert os.path.exists(exp_output_path), "Invalid experiment"
-    out_files = [f.path for f in os.scandir(exp_output_path)]
+    out_files = sorted([f.path for f in os.scandir(exp_output_path)])
     assert len(out_files) > 0, "Invalid experiment"
     exp_descr = yaml.load(open(exp_descr_path), Loader=yaml.FullLoader)
     export_path = os.path.join('/app/Experiments', experiment, 'export')
@@ -56,12 +56,35 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
             array_snapshot['sensor_direction_zy'] = directions_z[rot_z][0][1]
             array_snapshot['sensor_direction_xz'] = directions_x[rot_x][0][2]
             array_snapshot['sensor_direction_xy'] = directions_x[rot_x][0][1]
-            array_snapshot['mic_positions'] = [
-                    [round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
+            array_snapshot['mic_positions'] = []
+            array_snapshot['mic_values'] = [[] for _ in mics_xz[rot_x, rot_z]]
+            is_positions_valid = True
+            for mic_idx, mic in enumerate(mics_xz[rot_x, rot_z]):
+                # Check if sensor data at this position/rotation is supposed to be present at all
+                mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x) - exp_descr['export']['x_start']
+                mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y) - exp_descr['export']['y_start']
+                mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z) - exp_descr['export']['z_start']
+                if mic_out_idx_x < 0 or mic_out_idx_x >= exp_descr['export']['x_end']:
+                    is_positions_valid = False
+                if mic_out_idx_y < 0 or mic_out_idx_y >= exp_descr['export']['y_end']:
+                    is_positions_valid = False
+                if mic_out_idx_z < 0 or mic_out_idx_z >= exp_descr['export']['z_end']:
+                    is_positions_valid = False
+                if not is_positions_valid:
+                    break
+
+                array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
                     round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
-                    round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)]
-                for mic in mics_xz[rot_x, rot_z]
-            ]
+                    round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)])
+                for _ in out_files:
+                    array_snapshot['mic_values'][mic_idx].append((
+                        mic_out_idx_z,
+                        mic_out_idx_y,
+                        mic_out_idx_x
+                    ))
+            if not is_positions_valid:
+                continue
+                
             array_snapshot['sources'] = []
             for source in source_directions:
                 xa = np.array([array_snapshot['sensor_direction_xz'], array_snapshot['sensor_direction_xy'], 0])
@@ -86,6 +109,15 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
                 })
 
             result[key_position][key_rotation] = array_snapshot
+    
+    # Fill the indexes with data
+    for out_file_idx, out_file in enumerate(out_files):
+        out_data = np.load(out_file)
+        for position in result:
+            for rotation in result[position]:
+                for mic_value in result[position][rotation]['mic_values']:
+                    mic_value[out_file_idx] = out_data[mic_value[out_file_idx]]
+
 
     if debug_file is not None:
         sensors_origin = list(result.keys())[0]
