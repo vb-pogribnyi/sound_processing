@@ -25,7 +25,7 @@
 3. + Allow multiple meshes at configurable locations
 4. + Configure the masked sine signal
 5. + Export GIFs for configurable slices.
-6. Export mics data at configurable locations.
+6. + Export mics data at configurable locations.
 7. + Allow source meshes with different number of time points
 8. Use separate thread or process for the GIF generation
 9. Load the NPZ inputs simultaneously in different threads
@@ -33,3 +33,4 @@
 11. + While exporting audio data, write only indexes in the arrays, populate afterwards
 12. Create debug configuration where the density would change dramatically at some position - to debug the exported data.
 13. In the exported debug image draw the energy (or frequency) of the received signal - something that indicates higher density.
+14. Write exported data gradually - currently it required massive amounts of RAM

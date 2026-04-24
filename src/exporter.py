@@ -5,9 +5,12 @@ import shutil
 import numpy as np
 from scipy.spatial.transform import Rotation
 import cv2 as cv
+from tqdm import tqdm
+import pickle
 
-def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
+def export(experiment, mics, sensors_direction, angle_step, space_step, debug_file=None):
     exp_descr_path = os.path.join('/app/Experiments', experiment, 'experiment.yml')
+    exp_result_path = os.path.join('/app/Experiments', experiment, 'exported.pkl')
     exp_output_path = os.path.join('/app/Experiments', experiment, 'outputs')
     assert os.path.exists(exp_descr_path), "Invalid experiment"
     assert os.path.exists(exp_output_path), "Invalid experiment"
@@ -28,102 +31,112 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
     directions_z = np.stack([r.apply(sensors_direction) for r in rot_z])
     directions_x = np.stack([r.apply(sensors_direction) for r in rot_x])
 
-    size_x = exp_descr['export']['x_end'] - exp_descr['export']['x_start']
-    size_y = exp_descr['export']['y_end'] - exp_descr['export']['y_start']
-    size_z = exp_descr['export']['z_end'] - exp_descr['export']['z_start']
-
     mics_xz -= np.expand_dims(np.mean(mics_xz, axis=2), 2)
     result = {}
-    # TODO: do the following in the loop, iterate over all possible sensor origins
-    sensors_origin_x = size_x / 1.6 + exp_descr['export']['x_start']
-    sensors_origin_y = size_y / 2 + exp_descr['export']['y_start']
-    sensors_origin_z = size_z / 1.4 + exp_descr['export']['z_start']
-    key_position = (sensors_origin_x, sensors_origin_y, sensors_origin_z)
-    result[key_position] = {}
-    source_directions = []
-    for source in exp_descr['sources']:
-        mesh_meta = json.load(open(os.path.join('/app/input_mesh', source['type'], 'meta.json'))) 
-        dx = source['x'] + mesh_meta['nx'] / 2 - sensors_origin_x
-        dy = source['y'] + mesh_meta['ny'] / 2 - sensors_origin_y
-        dz = source['z'] + mesh_meta['nz'] / 2 - sensors_origin_z
-        source_directions.append((dx, dy, dz))
-    
-    for rot_z in range(len(angles)):
-        for rot_x in range(len(angles)):
-            key_rotation = (angles[rot_z], angles[rot_x])
-            array_snapshot = {}
-            array_snapshot['sensor_direction_zx'] = directions_z[rot_z][0][0]
-            array_snapshot['sensor_direction_zy'] = directions_z[rot_z][0][1]
-            array_snapshot['sensor_direction_xz'] = directions_x[rot_x][0][2]
-            array_snapshot['sensor_direction_xy'] = directions_x[rot_x][0][1]
-            array_snapshot['mic_positions'] = []
-            array_snapshot['mic_values'] = [[] for _ in mics_xz[rot_x, rot_z]]
-            is_positions_valid = True
-            for mic_idx, mic in enumerate(mics_xz[rot_x, rot_z]):
-                # Check if sensor data at this position/rotation is supposed to be present at all
-                mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x) - exp_descr['export']['x_start']
-                mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y) - exp_descr['export']['y_start']
-                mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z) - exp_descr['export']['z_start']
-                if mic_out_idx_x < 0 or mic_out_idx_x >= exp_descr['export']['x_end']:
-                    is_positions_valid = False
-                if mic_out_idx_y < 0 or mic_out_idx_y >= exp_descr['export']['y_end']:
-                    is_positions_valid = False
-                if mic_out_idx_z < 0 or mic_out_idx_z >= exp_descr['export']['z_end']:
-                    is_positions_valid = False
-                if not is_positions_valid:
-                    break
-
-                array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
-                    round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
-                    round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)])
-                for _ in out_files:
-                    array_snapshot['mic_values'][mic_idx].append((
-                        mic_out_idx_z,
-                        mic_out_idx_y,
-                        mic_out_idx_x
-                    ))
-            if not is_positions_valid:
-                continue
+    for sensors_origin_x in tqdm(np.arange(exp_descr['export']['x_start'], exp_descr['export']['x_end'], space_step[0]), position=0):
+        for sensors_origin_y in tqdm(np.arange(exp_descr['export']['y_start'], exp_descr['export']['y_end'], space_step[1]), position=1, leave=False):
+            for sensors_origin_z in tqdm(np.arange(exp_descr['export']['z_start'], exp_descr['export']['z_end'], space_step[2]), position=2, leave=False):
+                key_position = (sensors_origin_x, sensors_origin_y, sensors_origin_z)
+                result[key_position] = {}
+                source_directions = []
+                for source in exp_descr['sources']:
+                    mesh_meta = json.load(open(os.path.join('/app/input_mesh', source['type'], 'meta.json'))) 
+                    dx = source['x'] + mesh_meta['nx'] / 2 - sensors_origin_x
+                    dy = source['y'] + mesh_meta['ny'] / 2 - sensors_origin_y
+                    dz = source['z'] + mesh_meta['nz'] / 2 - sensors_origin_z
+                    source_directions.append((dx, dy, dz))
                 
-            array_snapshot['sources'] = []
-            for source in source_directions:
-                xa = np.array([array_snapshot['sensor_direction_xz'], array_snapshot['sensor_direction_xy'], 0])
-                xb = np.array([source[2], source[1], 0])
-                cos_anglex = np.dot(xa, xb) / (np.linalg.norm(xa) * np.linalg.norm(xb))
-                anglex = np.degrees(np.arccos(np.clip(cos_anglex, -1.0, 1.0)))
-                crossx = np.cross(xa, xb)
-                axis = [0, 0, 1]
-                if np.dot(crossx, axis) < 0:
-                    anglex = -anglex
-                
-                za = np.array([array_snapshot['sensor_direction_zx'], array_snapshot['sensor_direction_zy'], 0])
-                zb = np.array([source[0], source[1], 0])
-                cos_anglez = np.dot(za, zb) / (np.linalg.norm(za) * np.linalg.norm(zb))
-                anglez = np.degrees(np.arccos(np.clip(cos_anglez, -1.0, 1.0)))
-                crossz = np.cross(za, zb)
-                if np.dot(crossz, axis) < 0:
-                    anglez = -anglez
-                array_snapshot['sources'].append({
-                    'angle_x': anglex,
-                    'angle_z': anglez
-                })
+                for rot_z in range(len(angles)):
+                    for rot_x in range(len(angles)):
+                        key_rotation = (angles[rot_z], angles[rot_x])
+                        array_snapshot = {}
+                        array_snapshot['sensor_direction_zx'] = directions_z[rot_z][0][0]
+                        array_snapshot['sensor_direction_zy'] = directions_z[rot_z][0][1]
+                        array_snapshot['sensor_direction_xz'] = directions_x[rot_x][0][2]
+                        array_snapshot['sensor_direction_xy'] = directions_x[rot_x][0][1]
+                        array_snapshot['mic_positions'] = []
+                        array_snapshot['mic_values'] = [[] for _ in mics_xz[rot_x, rot_z]]
+                        is_positions_valid = True
+                        for mic_idx, mic in enumerate(mics_xz[rot_x, rot_z]):
+                            # Check if sensor data at this position/rotation is supposed to be present at all
+                            mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x) - exp_descr['export']['x_start']
+                            mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y) - exp_descr['export']['y_start']
+                            mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z) - exp_descr['export']['z_start']
+                            if mic_out_idx_x < 0 or mic_out_idx_x >= exp_descr['export']['x_end']:
+                                is_positions_valid = False
+                            if mic_out_idx_y < 0 or mic_out_idx_y >= exp_descr['export']['y_end']:
+                                is_positions_valid = False
+                            if mic_out_idx_z < 0 or mic_out_idx_z >= exp_descr['export']['z_end']:
+                                is_positions_valid = False
+                            if not is_positions_valid:
+                                break
 
-            result[key_position][key_rotation] = array_snapshot
-    
-    # Fill the indexes with data
-    for out_file_idx, out_file in enumerate(out_files):
+                            array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
+                                round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
+                                round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)])
+                            for _ in out_files:
+                                # Write indices for now. Actual data will be filled later, to save number of file reads.
+                                array_snapshot['mic_values'][mic_idx].append((
+                                    mic_out_idx_z,
+                                    mic_out_idx_y,
+                                    mic_out_idx_x
+                                ))
+                        if not is_positions_valid:
+                            continue
+                            
+                        array_snapshot['sources'] = []
+                        for source in source_directions:
+                            xa = np.array([array_snapshot['sensor_direction_xz'], array_snapshot['sensor_direction_xy'], 0])
+                            xb = np.array([source[2], source[1], 0])
+                            cos_anglex = np.dot(xa, xb) / (np.linalg.norm(xa) * np.linalg.norm(xb))
+                            anglex = np.degrees(np.arccos(np.clip(cos_anglex, -1.0, 1.0)))
+                            crossx = np.cross(xa, xb)
+                            axis = [0, 0, 1]
+                            if np.dot(crossx, axis) < 0:
+                                anglex = -anglex
+                            
+                            za = np.array([array_snapshot['sensor_direction_zx'], array_snapshot['sensor_direction_zy'], 0])
+                            zb = np.array([source[0], source[1], 0])
+                            cos_anglez = np.dot(za, zb) / (np.linalg.norm(za) * np.linalg.norm(zb))
+                            anglez = np.degrees(np.arccos(np.clip(cos_anglez, -1.0, 1.0)))
+                            crossz = np.cross(za, zb)
+                            if np.dot(crossz, axis) < 0:
+                                anglez = -anglez
+                            array_snapshot['sources'].append({
+                                'angle_x': anglex,
+                                'angle_z': anglez
+                            })
+
+                        result[key_position][key_rotation] = array_snapshot
+
+    print("Filling with data...")
+    result = {r: result[r] for r in result if len(result[r]) > 0}
+    for out_file_idx, out_file in tqdm(enumerate(out_files), position=0):
         out_data = np.load(out_file)
-        for position in result:
-            for rotation in result[position]:
+        for position in tqdm(result, position=1, leave=False):
+            for rotation in tqdm(result[position], position=2, leave=False):
                 for mic_value in result[position][rotation]['mic_values']:
                     mic_value[out_file_idx] = out_data[mic_value[out_file_idx]]
+    print('Dumping into file...')
+    pickle.dump(result, open(exp_result_path, 'wb'))
 
-
+    print("Creating debug image.")
     if debug_file is not None:
-        sensors_origin = list(result.keys())[0]
+        text_coord = 5
+        angles_z = [-90, 0, 30]
+        angles_x = [-5, 0, 5]
+        sensors_origin = None
+        for rkey in result:
+            angle_z_keys = [(angle_z, 0) for angle_z in angles_z]
+            angle_x_keys = [(0, angle_x) for angle_x in angles_x]
+            if np.all([akey in result[rkey] for akey in angle_z_keys]) and np.all([akey in result[rkey] for akey in angle_x_keys]):
+                sensors_origin = rkey
+                break
+        assert sensors_origin is not None, "Unable to find origin suitable for debug image."
+        # sensors_origin = list(result.keys())[0]
         result_item = result[sensors_origin]
         img_z = np.zeros((exp_descr['mesh']['size_y'], exp_descr['mesh']['size_x'], 3), np.uint8) + 25
-        for cidx, angle_z in enumerate([-90, 0, 30]):
+        for cidx, angle_z in enumerate(angles_z):
             array_snapshot = result_item[(angle_z, 0)]
             for v in array_snapshot['mic_positions']:
                 img_z[v[1], v[0], [cidx]] = 255
@@ -148,14 +161,17 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
                         (int(sensors_origin[0]), int(sensors_origin[1])), 
                         (int(sensors_origin[0] + rotated[0]), int(sensors_origin[1] + rotated[1])), 
                         line_color, 1)
+                cv.putText(img_z, str(int(source['angle_z'] * 10) / 10), (10, img_z.shape[0] - text_coord), cv.FONT_HERSHEY_SIMPLEX, 0.3, line_color, 1)
+                text_coord += 12
                 print("AngleZ:", source['angle_z'])
 
 
         print('-----------------------------')
+        text_coord = 5
         # # TODO: Is this a dublication?
         img_x = np.zeros((exp_descr['mesh']['size_y'], exp_descr['mesh']['size_z'], 3), np.uint8) + 25
 
-        for cidx, angle_x in enumerate([-5, 0, 5]):
+        for cidx, angle_x in enumerate(angles_x):
             array_snapshot = result_item[(0, angle_x)]
             for v in array_snapshot['mic_positions']:
                 img_x[v[1], v[2], [cidx]] = 255
@@ -180,6 +196,8 @@ def export(experiment, mics, sensors_direction, angle_step, debug_file=None):
                         (int(sensors_origin[2]), int(sensors_origin[1])), 
                         (int(sensors_origin[2] + rotated[2]), int(sensors_origin[1] + rotated[1])), 
                         line_color, 1)
+                cv.putText(img_x, str(int(source['angle_x'] * 10) / 10), (0, img_x.shape[0] - text_coord), cv.FONT_HERSHEY_SIMPLEX, 0.3, line_color, 1)
+                text_coord += 12
                 print("AngleX:", source['angle_x'])
         
         debug_img = np.zeros((img_z.shape[0], img_z.shape[1] + img_x.shape[1] + 5, 3), np.uint8)
@@ -193,12 +211,13 @@ if __name__ == "__main__":
     mics = np.array([
         [0.00, 0.00, 0.00],
         [0.05, 0.00, 0.00],
-        [0.00, 0.07, 0.00],
-        [0.05, 0.07, 0.00],
+        [0.00, 0.06, 0.00],
+        [0.05, 0.06, 0.00],
         [0.00, 0.00, 0.002],
         [0.05, 0.00, 0.002],
-        [0.00, 0.07, 0.002],
-        [0.05, 0.07, 0.002],
+        [0.00, 0.06, 0.002],
+        [0.05, 0.06, 0.002],
     ])
     sensors_direction = np.array([[0, -1, 0]])
-    export('001', mics, sensors_direction, 5, 'debug_img.png')
+    # export('001', mics, sensors_direction, 5, [100, 100, 5], 'debug_img.png')
+    export('001', mics, sensors_direction, 5, [50, 50, 2], 'debug_img.png')
