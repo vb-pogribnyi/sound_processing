@@ -215,10 +215,8 @@ class SourceDrawer:
         # minute is converted to rotations per second
         rps = rpm / 60
         angle = 0
-        for t_idx, t in enumerate(tqdm(np.linspace(tstart, tstop, nt))):
+        for t_idx, t in enumerate(tqdm(np.linspace(tstart, tstop, nt), position=1, leave=False)):
             angle = (t * rps) * 360 + start_angle
-        #     if DEBUG:
-        #             print(f"Drawing at time {int(t * 100) / 100} angle {int(angle * 100) / 100}...", end='\t')
             for i in range(self.nblades):
                 blade_angle = (angle + i * 360 / self.nblades) % 360
 
@@ -226,7 +224,4 @@ class SourceDrawer:
                         print(f"({int(blade_angle * 100) / 100}) ", end='\t')
 
                 self.draw_blade(x, y, z, blade_angle, t_idx, blade_idx=i)
-            
-        #     if DEBUG:
-        #             print('')
         return angle

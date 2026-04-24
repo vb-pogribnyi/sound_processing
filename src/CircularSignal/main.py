@@ -1,6 +1,7 @@
 import os
 import json
 import numpy as np
+from tqdm import tqdm
 from Mesh import Mesh
 from PlaneReader import PlaneReader
 from SourceDrawer import SourceDrawer
@@ -8,11 +9,15 @@ from SourceDrawer import SourceDrawer
 plane_reader = PlaneReader('/app/src/CircularSignal/profiles/00_test')
 
 dt = 1e-6
-rpm = 3700
+rpm = 0 # 3700
 rps = rpm / 60      # revolutions per second
 nblades=1
-ndivs = 50
-tmax = 1 / rps / nblades / ndivs      # time of 1 revolution
+ndivs = 10
+mesh_name = 'stationary'
+if rps == 0:
+    tmax = 1e-5
+else:
+    tmax = 1 / rps / nblades / ndivs      # time of 1 revolution
 nt = int(tmax / dt)
 print(dt, nt, ndivs)
 # The mesh step is given in meters. E.g. 
@@ -31,7 +36,7 @@ meta = {
     'nt': mesh.mesh.shape[3]
 }
 os.makedirs('input_mesh', exist_ok=True)
-json.dump(meta, open('input_mesh/meta.json', 'w'), indent=4)
+json.dump(meta, open(f'input_mesh/{mesh_name}/meta.json', 'w'), indent=4)
 source_drawer = SourceDrawer(
     mesh=mesh,
     plane_reader=plane_reader,
@@ -40,13 +45,14 @@ source_drawer = SourceDrawer(
     blade_width=0.015,      # 1.5 cm
     blade_thickness=0.005   # 5 mm
 )
-os.makedirs('input_mesh', exist_ok=True)
+mesh_path = os.path.join('input_mesh', mesh_name)
+os.makedirs(mesh_path, exist_ok=True)
 angle = 0
-for mesh_idx in range(ndivs):
+for mesh_idx in tqdm(range(ndivs), position=0):
     mesh.mesh *= 0
     angle = source_drawer.draw(0.5, 0.5, 0.5, rpm=rpm, start_angle=angle)
 
     # current = np.nan_to_num(np.load(f'input_mesh/{str(mesh_idx).zfill(3)}.npz')['arr_0'])
-    np.savez_compressed(f'input_mesh/{str(mesh_idx).zfill(3)}.npz', mesh.mesh)
+    np.savez_compressed(os.path.join(mesh_path, f'{str(mesh_idx).zfill(3)}.npz'), mesh.mesh)
 
 print('done')

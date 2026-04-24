@@ -1,4 +1,5 @@
 import os
+import gc
 import yaml
 import json
 import h5py
@@ -22,7 +23,7 @@ from kwave.options.simulation_options import SimulationOptions
 from CircularSignal.MeshReader import MeshReader
 
 
-Nt = 512
+Nt = 256
 
 def save_slice_img(slice, dirname, out_idx):
     os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
@@ -152,8 +153,11 @@ def run_experiment(base_path, config):
     kgrid.Nt = int(config['time'] / float(config['mesh']['dt']))
     sampling_period = int(1 / config['sampling'] / kgrid.dt)
 
+    # These functions consume lot of ram. gc.collect() is supposed to free that ram after it's not needed.
     medium = kWaveMedium(sound_speed=spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png'))
+    gc.collect()
     medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
+    gc.collect()
 
     # Execution configuration
     sensor = kSensor()

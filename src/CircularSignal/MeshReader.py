@@ -27,6 +27,7 @@ class MeshReader:
         steps_overall = len(self.files) * self.meta['nt']
         load_step_start = int(in_timestep_start) % steps_overall
         load_step_end = int(in_timestep_end + 1) % steps_overall
+        n_full_loops = int((in_timestep_end + 1 - in_timestep_start) / steps_overall)
         file_start = int(load_step_start / self.meta['nt'])
         file_end = int(load_step_end / self.meta['nt'])
         assert file_start >= 0 and file_start < len(self.files), "Wrong file index"
@@ -35,19 +36,23 @@ class MeshReader:
         #Load the involved files
         fidx = file_start
         data = []
+        n_loops_passed = 0
         while True:
             print('Loading file', self.files[fidx])
             data.append(np.load(self.files[fidx])['arr_0'])
             if fidx == file_end:
-                break
+                if n_loops_passed >= n_full_loops:
+                    break
             fidx += 1
             if fidx == len(self.files):
                 fidx = 0
+            if fidx == file_start:
+                n_loops_passed += 1
         data = np.concatenate(data, axis=-1)
 
         # Interpolate
         old_time_start = self.meta['nt'] * file_start
-        old_time_end = self.meta['nt'] * (file_end + 1)
+        old_time_end = self.meta['nt'] * (file_end + 1 + n_full_loops * len(self.files))
         if old_time_end < old_time_start:
             old_time_end += steps_overall
         old_times = np.arange(old_time_start, old_time_end, 1) * speed
