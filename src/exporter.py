@@ -9,15 +9,15 @@ from tqdm import tqdm
 import pickle
 
 def export(experiment, mics, sensors_direction, angle_step, space_step, debug_file=None):
-    exp_descr_path = os.path.join('/app/Experiments', experiment, 'experiment.yml')
-    exp_result_path = os.path.join('/app/Experiments', experiment, 'exported.pkl')
-    exp_output_path = os.path.join('/app/Experiments', experiment, 'outputs')
+    exp_descr_path = os.path.join('/experiments', experiment, 'experiment.yml')
+    exp_result_path = os.path.join('/experiments', experiment, 'exported.pkl')
+    exp_output_path = os.path.join('/experiments', experiment, 'outputs')
     assert os.path.exists(exp_descr_path), "Invalid experiment"
     assert os.path.exists(exp_output_path), "Invalid experiment"
     out_files = sorted([f.path for f in os.scandir(exp_output_path)])
     assert len(out_files) > 0, "Invalid experiment"
     exp_descr = yaml.load(open(exp_descr_path), Loader=yaml.FullLoader)
-    export_path = os.path.join('/app/Experiments', experiment, 'export')
+    export_path = os.path.join('/experiments', experiment, 'export')
     if os.path.exists(export_path):
         shutil.rmtree(export_path)
     os.makedirs(export_path)

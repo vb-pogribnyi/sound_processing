@@ -24,6 +24,7 @@ from CircularSignal.MeshReader import MeshReader
 
 import atexit
 import logging
+import resource
 from multiprocessing import Process, Queue
 from multiprocessing.shared_memory import SharedMemory
 
@@ -40,8 +41,10 @@ def worker_gif(task_queue, logger):
         # Create the gif from images
         for dirname in dirnames:
             logger.info(f"Processing {dirname}")
-            frames = [Image.open(p).convert("RGBA") for p in sorted([f.path for f in os.scandir(os.path.join(dirname, 'frames'))])]
+            frames = sorted([f.path for f in os.scandir(os.path.join(dirname, 'frames'))])
             logger.info(f"Found {len(frames)} frames")
+            frames = frames[-256:]
+            frames = [Image.open(p).convert("RGBA") for p in frames]
 
             frames[0].save(
                 os.path.join(dirname, 'slice.gif'),
@@ -54,25 +57,27 @@ def worker_gif(task_queue, logger):
                 disposal=2,  # clear each frame before drawing the next
             )
         logger.info(f"GIFs saved")
+        logger.info(f'Peak memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB')
         if msg is None:
             break
 
 def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds):
     while True:
         msg = in_queue.get()
-        print('Source worker got message')
         if msg is None:
             break
         assert in_queue.empty(), "More than 1 request to generate source!"
         (time_start, time_end, sources_cfg) = msg
-        print("GETTING source input", time_start, time_end)
         logger.info(f"Started processing from {time_start} to {time_end}")
         shm = SharedMemory(name=shm_name)
+        logger.info(f"Loaded shared memory")
         shm_array = np.ndarray(shm_shape, shm_dtype, shm.buf)
         shm_array *= 0
         for source in sources_cfg:
+            logger.info(f"Loading source")
             shm_array += load_source(source, time_start, time_end, mesh_readers[source['type']], source_bounds, logger)
         logger.info(f"Source generation done.")
+        logger.info(f'Peak memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB')
         out_queue.put(msg)
 
 
@@ -100,10 +105,7 @@ def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, lo
     for f in os.scandir(os.path.join('/app/input_mesh', source_cfg['type'])):
         if f.name.split('.')[-1] == 'npz':
             src_files[f.name.split('.')[0]] = f.path
-    # fnames = sorted(list(src_files.keys()))
-    # mesh_path = src_files[fnames[source_idx]]
 
-    # mesh = np.load(mesh_path)['arr_0']
     mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
     mesh_xend = mesh_xstart + mesh.shape[0]
@@ -164,7 +166,6 @@ def run_experiment(base_path, config):
     zmin, zmax = None, None
     mesh_readers = {}
     for source in config['sources']:
-        # src_files = {}
         mesh_meta = json.load(open(os.path.join('/app/input_mesh', source['type'], 'meta.json')))
         # assert mesh_meta['nt'] == Nt, "Number of timesteps must match for each mesh"
         assert mesh_meta['dx'] == config['mesh']['dx'], "DX for source mesh must match computational mesh"
@@ -175,15 +176,6 @@ def run_experiment(base_path, config):
         zmin, zmax = get_mesh_bounds(zmin, zmax, source, mesh_meta, 'z', 'nz')
         if not source['type'] in mesh_readers:
             mesh_readers[source['type']] = MeshReader(os.path.join('/app/input_mesh', source['type']))
-        # for f in os.scandir(os.path.join('/app/input_mesh', source['type'])):
-            # if Nt == None:
-            #     Nt = mesh_meta['nt']
-            # if f.name.split('.')[-1] == 'npz':
-            #     src_files[f.name.split('.')[0]] = f.path
-        # fnames = sorted(list(src_files.keys()))
-        # if nsources is None:
-        #     nsources = len(src_files)
-        # assert nsources == len(src_files), "Number of mesh files must match across sources."
     assert xmin is not None and xmax is not None, "No sources loaded!"
     assert ymin is not None and ymax is not None, "No sources loaded!"
     assert zmin is not None and zmax is not None, "No sources loaded!"
@@ -252,6 +244,15 @@ def run_experiment(base_path, config):
     gif_process = Process(target=worker_gif, args=(gif_task_queue, gif_logger))
     gif_process.start()
 
+
+    general_logger = logging.getLogger("general")
+    general_logger.setLevel(logging.DEBUG)
+    general_log_handler = logging.FileHandler(os.path.join(bkp_proc_dir, 'general.log'))
+    general_log_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    general_logger.addHandler(general_log_handler)
+
     def cleanup():
         print("Terminating...")
         gif_task_queue.put(None)
@@ -264,10 +265,6 @@ def run_experiment(base_path, config):
             source_process.terminate()
         source_p_shm.unlink()
     atexit.register(cleanup)
-
-
-
-
 
     # Execution configuration
     sensor = kSensor()
@@ -301,22 +298,21 @@ def run_experiment(base_path, config):
     out_idx = n_samples_ready
     current_time = ckpt_time
     source_task_queue.put((current_time, current_time + Nt, config['sources']))
-    print("Putting source input", current_time, current_time + Nt)
+    general_logger.info(f"Putting source input from {current_time} to {current_time + Nt}")
+
+    iteration = 0
     for step_idx in range(start_step_idx, 1000000):
-        # source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % nsources
-        # print("------------- Using source:", source_idx)
+        general_logger.info(f'Peak memory at step {iteration}: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB')
+        iteration += 1
         execution_options.input_file = os.path.join(proc_dir, f'input_{step_idx}.h5')
         simulation_options.execution_options = execution_options
-        # source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt, step_idx)
         curr_source_p = source_task_out_queue.get()
         assert source_task_out_queue.empty(), "Souce task result has not been processed!"
         assert curr_source_p[0] == current_time, "Wrong source time"
         assert curr_source_p[1] == current_time + Nt, "Wrong source time"
         source.p = shared_p.copy()
         source_task_queue.put((current_time + Nt, current_time + 2*Nt, config['sources']))
-        print("Putting source input", current_time, current_time + Nt)
-        # for source_cfg in config['sources']:
-        #     load_source(source, source_cfg, current_time, current_time + Nt, mesh_readers[source_cfg['type']], source_bounds)
+        general_logger.info(f"Putting source input from {current_time} to {current_time + Nt}")
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         os.remove(execution_options.input_file)
         current_time = output['t_index']
@@ -367,7 +363,7 @@ def run_experiment(base_path, config):
             shutil.copy(execution_options.checkpoint_file, bkp_ckpt_file)
 
 if __name__ == '__main__':
-    experiments_base = '/app/Experiments'
+    experiments_base = '/experiments'
     for exp_f in os.scandir(experiments_base):
         if not os.path.isdir(exp_f):
             continue

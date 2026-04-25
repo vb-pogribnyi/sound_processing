@@ -11,12 +11,12 @@
         {
             "label": "clear_exp001",
             "type": "shell",
-            "command": "rm -rf /app/Experiments/001/processing && rm -rf /app/Experiments/001/outputs && rm -rf /app/Experiments/001/slices && rm -rf /inputs/processing"
+            "command": "rm -rf /experiments/001/processing && rm -rf /experiments/001/outputs && rm -rf /experiments/001/slices && rm -rf /inputs/processing"
         },
         {
             "label": "clear_exp002",
             "type": "shell",
-            "command": "rm -rf /app/Experiments/002/processing && rm -rf /app/Experiments/002/outputs && rm -rf /app/Experiments/002/slices && rm -rf /inputs/processing"
+            "command": "rm -rf /experiments/002/processing && rm -rf /experiments/002/outputs && rm -rf /experiments/002/slices && rm -rf /inputs/processing"
         },
         {
             "label": "clear_slices",
