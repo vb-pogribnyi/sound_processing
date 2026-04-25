@@ -1,6 +1,7 @@
 description: Test experiment
 sampling: 44000         # 16 kHz sampling rate
 time: 0.3               # overall time, in seconds
+homogenous: 1
 export:
   x_start: 0
   x_end: 479
@@ -9,12 +10,12 @@ export:
   z_start: 64
   z_end: 127
 mesh:
-  size_x: 480
+  size_x: 512
   size_y: 256
-  size_z: 128
+  size_z: 200
   dx: 0.00234
   dy: 0.00234
-  dz: 0.000625
+  dz: 0.00234
   dt: 1e-06
 slices:
   - axis: z

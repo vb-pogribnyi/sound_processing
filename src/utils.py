@@ -32,8 +32,10 @@ def spheres_noise(kgrid, base_val, min_val, max_val, min_rad, max_rad, seed, dbg
     r  = np.array([s['radius'] for s in spheres]).reshape(-1, 1, 1, 1)
     v  = np.array([s['value']  for s in spheres]).reshape(-1, 1, 1, 1)
 
-    dist_sq = (ix - cx)**2 + (iy - cy)**2 + (iz - cz)**2
-    dist    = np.sqrt(dist_sq)
+    dist    = np.sqrt((ix - cx)**2 + (iy - cy)**2 + (iz - cz)**2)
+    del ix
+    del iy
+    del iz
 
     # Normalized distance: 0.0 at center, 1.0 at edge, >1.0 outside
     t = np.clip(dist / r, 0.0, 1.0)
@@ -51,6 +53,7 @@ def spheres_noise(kgrid, base_val, min_val, max_val, min_rad, max_rad, seed, dbg
             weight = 1.0 - (3 * t**2 - 2 * t**3)     # smooth step, zero derivative at both ends
         case _:
             raise ValueError(f"Unknown falloff: '{falloff}'")
+    del t
  
     weight = np.where(dist <= r, weight, 0.0)
 

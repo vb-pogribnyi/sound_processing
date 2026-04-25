@@ -53,6 +53,9 @@ class MeshReader:
         # Interpolate
         old_time_start = self.meta['nt'] * file_start
         old_time_end = self.meta['nt'] * (file_end + 1 + n_full_loops * len(self.files))
+        if file_end < file_start:
+            old_time_end += self.meta['nt'] * len(self.files)
+        assert old_time_end - old_time_start == data.shape[-1], "Wrong time scaling"
         if old_time_end < old_time_start:
             old_time_end += steps_overall
         old_times = np.arange(old_time_start, old_time_end, 1) * speed

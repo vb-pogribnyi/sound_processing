@@ -24,7 +24,7 @@ print(dt, nt, ndivs)
 # mesh 128x128 with step 0.00234 is 30x30 cm
 # dz of 0.000625 m gives 8 steps for the thickness of 0.005 m
 mesh = Mesh(nx=128, ny=128, nz=16, nt=nt,
-            dx=0.00234, dy=0.00234, dz=0.000625, dt=dt)
+            dx=0.00234, dy=0.00234, dz=0.00234, dt=dt)
 meta = {
     'dt': dt,
     'dx': mesh.dx,

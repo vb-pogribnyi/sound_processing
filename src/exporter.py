@@ -59,9 +59,9 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                         is_positions_valid = True
                         for mic_idx, mic in enumerate(mics_xz[rot_x, rot_z]):
                             # Check if sensor data at this position/rotation is supposed to be present at all
-                            mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x) - exp_descr['export']['x_start']
-                            mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y) - exp_descr['export']['y_start']
-                            mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z) - exp_descr['export']['z_start']
+                            mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x)
+                            mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y)
+                            mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)
                             if mic_out_idx_x < 0 or mic_out_idx_x >= exp_descr['export']['x_end']:
                                 is_positions_valid = False
                             if mic_out_idx_y < 0 or mic_out_idx_y >= exp_descr['export']['y_end']:
@@ -70,6 +70,9 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                                 is_positions_valid = False
                             if not is_positions_valid:
                                 break
+                            mic_out_idx_x -= exp_descr['export']['x_start']
+                            mic_out_idx_y -= exp_descr['export']['y_start']
+                            mic_out_idx_z -= exp_descr['export']['z_start']
 
                             array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
                                 round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
@@ -211,13 +214,13 @@ if __name__ == "__main__":
     mics = np.array([
         [0.00, 0.00, 0.00],
         [0.05, 0.00, 0.00],
-        [0.00, 0.06, 0.00],
-        [0.05, 0.06, 0.00],
-        [0.00, 0.00, 0.002],
-        [0.05, 0.00, 0.002],
-        [0.00, 0.06, 0.002],
-        [0.05, 0.06, 0.002],
+        [0.10, 0.00, 0.00],
+        [0.15, 0.00, 0.00],
+        # [0.00, 0.00, 0.002],
+        # [0.05, 0.00, 0.002],
+        # [0.00, 0.06, 0.002],
+        # [0.05, 0.06, 0.002],
     ])
     sensors_direction = np.array([[0, -1, 0]])
     # export('001', mics, sensors_direction, 5, [100, 100, 5], 'debug_img.png')
-    export('001', mics, sensors_direction, 5, [50, 50, 2], 'debug_img.png')
+    export('002', mics, sensors_direction, 5, [120, 35, 25], 'debug_img.png')

@@ -22,10 +22,45 @@ from kwave.options.simulation_execution_options import SimulationExecutionOption
 from kwave.options.simulation_options import SimulationOptions
 from CircularSignal.MeshReader import MeshReader
 
+import atexit
+import logging
+from multiprocessing import Process, Queue
+
+def worker_gif(task_queue, logger):
+    while True:
+        dirnames = set()
+        msg = task_queue.get()
+        if msg is not None:
+            dirnames.add(msg)
+        while not task_queue.empty():
+            msg = task_queue.get_nowait()
+            if msg is not None:
+                dirnames.add(msg)
+        # Create the gif from images
+        for dirname in dirnames:
+            logger.info(f"Processing {dirname}")
+            frames = [Image.open(p).convert("RGBA") for p in sorted([f.path for f in os.scandir(os.path.join(dirname, 'frames'))])]
+            logger.info(f"Found {len(frames)} frames")
+
+            frames[0].save(
+                os.path.join(dirname, 'slice.gif'),
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=30,       # milliseconds per frame
+                loop=0,
+                optimize=True,
+                disposal=2,  # clear each frame before drawing the next
+            )
+        logger.info(f"GIFs saved")
+        if msg is None:
+            break
+
+
 
 Nt = 256
 
-def save_slice_img(slice, dirname, out_idx):
+def save_slice_img(slice, dirname, out_idx, gif_task_queue):
     os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
     slice = np.stack([slice, np.zeros_like(slice), slice], axis=-1)
     slice[:, :, 2] *= -1
@@ -36,18 +71,8 @@ def save_slice_img(slice, dirname, out_idx):
     # slice[mic_position[0], mic_position[1], 1] = 255
     cv.imwrite(os.path.join(dirname, 'frames', f'{str(out_idx).zfill(5)}.png'), slice.astype(np.uint8))
 
-    frames = [Image.open(p).convert("RGBA") for p in sorted([f.path for f in os.scandir(os.path.join(dirname, 'frames'))])]
+    gif_task_queue.put(dirname)
 
-    frames[0].save(
-        os.path.join(dirname, 'slice.gif'),
-        format="GIF",
-        save_all=True,
-        append_images=frames[1:],
-        duration=30,       # milliseconds per frame
-        loop=0,
-        optimize=True,
-        disposal=2,  # clear each frame before drawing the next
-    )
 
 
 def load_source(source, source_cfg, time_start, time_end, mesh_reader, source_bounds):
@@ -106,6 +131,32 @@ def get_mesh_bounds(vmin, vmax, source, mesh_meta, key, nkey):
 def run_experiment(base_path, config):
     os.makedirs(os.path.join(base_path, 'outputs'), exist_ok=True)
     os.makedirs(os.path.join(base_path, 'slices'), exist_ok=True)
+    proc_dir = '/inputs/processing'
+    bkp_proc_dir = os.path.join(base_path, 'processing')
+    os.makedirs(bkp_proc_dir, exist_ok=True)
+    result_dir = os.path.join(base_path, 'outputs')
+
+
+    gif_task_queue = Queue()
+    gif_logger = logging.getLogger("gif_worker")
+    gif_logger.setLevel(logging.DEBUG)
+    handler = logging.FileHandler(os.path.join(bkp_proc_dir, 'gif_worker.log'))
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    gif_logger.addHandler(handler)
+    gif_process = Process(target=worker_gif, args=(gif_task_queue, gif_logger))
+    gif_process.start()
+
+    def cleanup():
+        print("Terminating...")
+        gif_task_queue.put(None)
+        worker_gif.join(timeout=15)
+        if worker_gif.is_alive():
+            worker_gif.terminate()
+    atexit.register(cleanup)
+
+
     for i, _ in enumerate(config['slices']):
         os.makedirs(os.path.join(base_path, 'slices', str(i).zfill(3)), exist_ok=True)
 
@@ -154,10 +205,14 @@ def run_experiment(base_path, config):
     sampling_period = int(1 / config['sampling'] / kgrid.dt)
 
     # These functions consume lot of ram. gc.collect() is supposed to free that ram after it's not needed.
-    medium = kWaveMedium(sound_speed=spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png'))
-    gc.collect()
-    medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
-    gc.collect()
+    if 'homogenous' in config and config['homogenous']:
+        medium = kWaveMedium(sound_speed=343)
+        medium.density = 1
+    else:
+        medium = kWaveMedium(sound_speed=spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png'))
+        gc.collect()
+        medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
+        gc.collect()
 
     # Execution configuration
     sensor = kSensor()
@@ -167,9 +222,6 @@ def run_experiment(base_path, config):
         data_cast="single",
     )
     execution_options = SimulationExecutionOptions(is_gpu_simulation=True)
-    proc_dir = '/inputs/processing'
-    bkp_proc_dir = os.path.join(base_path, 'processing')
-    result_dir = os.path.join(base_path, 'outputs')
     os.makedirs(proc_dir, exist_ok=True)
     os.makedirs(bkp_proc_dir, exist_ok=True)
     os.makedirs(result_dir, exist_ok=True)
@@ -243,7 +295,7 @@ def run_experiment(base_path, config):
                     slice_data = sensor_data[int(slice['position']), :, :, timestep_idx]
                 else:
                     assert False, "Invalid export slice!"
-                save_slice_img(slice_data, dirname, out_idx)
+                save_slice_img(slice_data, dirname, out_idx, gif_task_queue)
             out_idx += 1
         # Check if the number of files generated matches the one recorded in checkpoint
         with h5py.File(str(execution_options.checkpoint_file), 'r') as f:
