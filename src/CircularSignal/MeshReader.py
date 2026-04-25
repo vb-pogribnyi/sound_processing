@@ -19,7 +19,7 @@ class MeshReader:
         assert len(self.files) > 0, "No input files found!"
 
     
-    def sample(self, speed, timestep_start, timestep_end):
+    def sample(self, speed, timestep_start, timestep_end, logger=None):
         speed = 1 / speed   # So that speed of, e.g. 1.1 is faster, 0.9 is slower
         # Rescale to the input timesteps
         in_timestep_start = timestep_start / speed
@@ -38,7 +38,10 @@ class MeshReader:
         data = []
         n_loops_passed = 0
         while True:
-            print('Loading file', self.files[fidx])
+            if logger is None:
+                print('Loading file', self.files[fidx])
+            else:
+                logger.info(f'Loading file {self.files[fidx]}')
             data.append(np.load(self.files[fidx])['arr_0'])
             if fidx == file_end:
                 if n_loops_passed >= n_full_loops:

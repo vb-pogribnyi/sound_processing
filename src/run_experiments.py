@@ -25,6 +25,7 @@ from CircularSignal.MeshReader import MeshReader
 import atexit
 import logging
 from multiprocessing import Process, Queue
+from multiprocessing.shared_memory import SharedMemory
 
 def worker_gif(task_queue, logger):
     while True:
@@ -56,6 +57,23 @@ def worker_gif(task_queue, logger):
         if msg is None:
             break
 
+def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds):
+    while True:
+        msg = in_queue.get()
+        print('Source worker got message')
+        if msg is None:
+            break
+        assert in_queue.empty(), "More than 1 request to generate source!"
+        (time_start, time_end, sources_cfg) = msg
+        print("GETTING source input", time_start, time_end)
+        logger.info(f"Started processing from {time_start} to {time_end}")
+        shm = SharedMemory(name=shm_name)
+        shm_array = np.ndarray(shm_shape, shm_dtype, shm.buf)
+        shm_array *= 0
+        for source in sources_cfg:
+            shm_array += load_source(source, time_start, time_end, mesh_readers[source['type']], source_bounds, logger)
+        logger.info(f"Source generation done.")
+        out_queue.put(msg)
 
 
 Nt = 256
@@ -75,7 +93,7 @@ def save_slice_img(slice, dirname, out_idx, gif_task_queue):
 
 
 
-def load_source(source, source_cfg, time_start, time_end, mesh_reader, source_bounds):
+def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger):
     src_files = {}
     mesh_meta = json.load(open(os.path.join('/app/input_mesh', source_cfg['type'], 'meta.json')))
     dt = float(mesh_meta['dt'])
@@ -86,7 +104,7 @@ def load_source(source, source_cfg, time_start, time_end, mesh_reader, source_bo
     # mesh_path = src_files[fnames[source_idx]]
 
     # mesh = np.load(mesh_path)['arr_0']
-    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end)
+    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
     mesh_xend = mesh_xstart + mesh.shape[0]
     mesh_ystart = int(source_cfg['y'] - source_bounds['y'][0])
@@ -116,7 +134,7 @@ def load_source(source, source_cfg, time_start, time_end, mesh_reader, source_bo
     result *= y[None, None, None, :]
     source_p[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = result
 
-    source.p += np.transpose(source_p, [2, 1, 0, 3]).reshape(-1, Nt)
+    return np.transpose(source_p, [2, 1, 0, 3]).reshape(-1, Nt)
 
 def get_mesh_bounds(vmin, vmax, source, mesh_meta, key, nkey):
     if vmin is None:
@@ -135,27 +153,6 @@ def run_experiment(base_path, config):
     bkp_proc_dir = os.path.join(base_path, 'processing')
     os.makedirs(bkp_proc_dir, exist_ok=True)
     result_dir = os.path.join(base_path, 'outputs')
-
-
-    gif_task_queue = Queue()
-    gif_logger = logging.getLogger("gif_worker")
-    gif_logger.setLevel(logging.DEBUG)
-    handler = logging.FileHandler(os.path.join(bkp_proc_dir, 'gif_worker.log'))
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s"
-    ))
-    gif_logger.addHandler(handler)
-    gif_process = Process(target=worker_gif, args=(gif_task_queue, gif_logger))
-    gif_process.start()
-
-    def cleanup():
-        print("Terminating...")
-        gif_task_queue.put(None)
-        worker_gif.join(timeout=15)
-        if worker_gif.is_alive():
-            worker_gif.terminate()
-    atexit.register(cleanup)
-
 
     for i, _ in enumerate(config['slices']):
         os.makedirs(os.path.join(base_path, 'slices', str(i).zfill(3)), exist_ok=True)
@@ -214,6 +211,64 @@ def run_experiment(base_path, config):
         medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
         gc.collect()
 
+
+    # Start GIF and MeshReader processes
+    source = kSource()
+    source.p_mask = np.zeros([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
+    source.p_mask[xmin:xmax, ymin:ymax, zmin:zmax] = 1
+    n_src_points = (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
+    assert n_src_points == source.p_mask.sum(), "Something wrong with source mask"
+    source.p = np.zeros([n_src_points, Nt], dtype=np.float32)
+    try:
+        old_shm = SharedMemory(name="source_p_shm")
+        old_shm.close()
+        old_shm.unlink()
+    except Exception as e:
+        pass
+    source_p_shm = SharedMemory(name="source_p_shm", create=True, size=source.p.nbytes)
+    shared_p = np.ndarray(source.p.shape, source.p.dtype, buffer=source_p_shm.buf)
+    source_task_queue = Queue()
+    source_task_out_queue = Queue()
+    source_logger = logging.getLogger("source_worker")
+    source_logger.setLevel(logging.DEBUG)
+    source_log_handler = logging.FileHandler(os.path.join(bkp_proc_dir, 'source_worker.log'))
+    source_log_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    source_logger.addHandler(source_log_handler)
+    source_process = Process(target=worker_source, args=(
+        source_task_queue, source_task_out_queue, source_logger, source_p_shm.name, shared_p.shape, shared_p.dtype, mesh_readers, source_bounds
+    ))
+    source_process.start()
+    
+    gif_task_queue = Queue()
+    gif_logger = logging.getLogger("gif_worker")
+    gif_logger.setLevel(logging.DEBUG)
+    gif_log_handler = logging.FileHandler(os.path.join(bkp_proc_dir, 'gif_worker.log'))
+    gif_log_handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    gif_logger.addHandler(gif_log_handler)
+    gif_process = Process(target=worker_gif, args=(gif_task_queue, gif_logger))
+    gif_process.start()
+
+    def cleanup():
+        print("Terminating...")
+        gif_task_queue.put(None)
+        gif_process.join(timeout=15)
+        if gif_process.is_alive():
+            gif_process.terminate()
+        source_task_queue.put(None)
+        source_process.join(timeout=15)
+        if source_process.is_alive():
+            source_process.terminate()
+        source_p_shm.unlink()
+    atexit.register(cleanup)
+
+
+
+
+
     # Execution configuration
     sensor = kSensor()
     sensor.mask = np.ones([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
@@ -245,20 +300,23 @@ def run_experiment(base_path, config):
         n_samples_ready = len([f.name for f in os.scandir('/app/outputs')])
     out_idx = n_samples_ready
     current_time = ckpt_time
+    source_task_queue.put((current_time, current_time + Nt, config['sources']))
+    print("Putting source input", current_time, current_time + Nt)
     for step_idx in range(start_step_idx, 1000000):
         # source_idx = int(step_idx * execution_options.checkpoint_timesteps / Nt) % nsources
         # print("------------- Using source:", source_idx)
         execution_options.input_file = os.path.join(proc_dir, f'input_{step_idx}.h5')
         simulation_options.execution_options = execution_options
         # source = load_mesh(src_files[fnames[source_idx]], kgrid, N, Nt, step_idx)
-        source = kSource()
-        source.p_mask = np.zeros([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
-        source.p_mask[xmin:xmax, ymin:ymax, zmin:zmax] = 1
-        n_src_points = (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
-        assert n_src_points == source.p_mask.sum(), "Something wrong with source mask"
-        source.p = np.zeros([n_src_points, Nt], dtype=np.float32)
-        for source_cfg in config['sources']:
-            load_source(source, source_cfg, current_time, current_time + Nt, mesh_readers[source_cfg['type']], source_bounds)
+        curr_source_p = source_task_out_queue.get()
+        assert source_task_out_queue.empty(), "Souce task result has not been processed!"
+        assert curr_source_p[0] == current_time, "Wrong source time"
+        assert curr_source_p[1] == current_time + Nt, "Wrong source time"
+        source.p = shared_p.copy()
+        source_task_queue.put((current_time + Nt, current_time + 2*Nt, config['sources']))
+        print("Putting source input", current_time, current_time + Nt)
+        # for source_cfg in config['sources']:
+        #     load_source(source, source_cfg, current_time, current_time + Nt, mesh_readers[source_cfg['type']], source_bounds)
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         os.remove(execution_options.input_file)
         current_time = output['t_index']
@@ -273,7 +331,6 @@ def run_experiment(base_path, config):
         # assert np.sum(np.abs(sensor_data[:, :, :, start_idx + n_samples_prepared:])) == 0, "Skipping nonempty samples."
         n_samples_ready += n_samples_prepared
         for timestep_idx in range(start_idx, start_idx + n_samples_prepared):
-            # TODO: Read and complete (or re-generate) the gif(s)
             exported_sources = sensor_data[
                 config['export']['z_start']:config['export']['z_end'], 
                 config['export']['y_start']:config['export']['y_end'], 
