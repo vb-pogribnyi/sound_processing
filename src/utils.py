@@ -78,7 +78,7 @@ def spheres_noise(kgrid, base_val, min_val, max_val, min_rad, max_rad, seed, dbg
     arr += base_val
     
     if dbg_file is not None:
-        slice = arr[:, :, arr.shape[-1] // 2]
+        slice = arr[:, :, arr.shape[-1] // 2].copy()
         slice -= slice.min()
         slice /= slice.max()
         slice *= 255

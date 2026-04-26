@@ -27,15 +27,11 @@
 5. + Export GIFs for configurable slices.
 6. + Export mics data at configurable locations.
 7. + Allow source meshes with different number of time points
-8. Use separate thread or process for the GIF generation
-9. Load the NPZ inputs simultaneously in different threads
-10. Load the inputs for the next step in advance.
+8. + Use separate thread or process for the GIF generation
+9. + Load the NPZ inputs simultaneously in different threads
+10. + Load the inputs for the next step in advance.
 11. + While exporting audio data, write only indexes in the arrays, populate afterwards
 12. - Create debug configuration where the density would change dramatically at some position - to debug the exported data.
 13. - In the exported debug image draw the energy (or frequency) of the received signal - something that indicates higher density.
 14. Write exported data gradually - currently it required massive amounts of RAM
-15. It seems to split z axis in halfs with heterogenous configuration (Add density slices at same positions as pressure)
-
-
-def sample(self, speed, timestep_start, timestep_end):
-Fails at timestep_start = 5120, timestep_end = 5376
+15. + It seems to split z axis in halfs with heterogenous configuration (Add density slices at same positions as pressure)

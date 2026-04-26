@@ -198,10 +198,37 @@ def run_experiment(base_path, config):
         medium = kWaveMedium(sound_speed=343)
         medium.density = 1
     else:
-        medium = kWaveMedium(sound_speed=spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png'))
+        sound_speed = spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png')
+        density_map = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
+        medium = kWaveMedium(sound_speed=sound_speed)
         gc.collect()
-        medium.density = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
+        medium.density = density_map
         gc.collect()
+        for i, slice in enumerate(config['slices']):
+            dirname = os.path.join(base_path, 'slices', str(i).zfill(3))
+            if slice['axis'] == 'x':
+                assert int(slice['position']) < sound_speed.shape[0]
+                assert int(slice['position']) < density_map.shape[0]
+                s_slice_data = sound_speed[int(slice['position']), :, :].copy()
+                d_slice_data = density_map[int(slice['position']), :, :].copy()
+            elif slice['axis'] == 'y':
+                assert int(slice['position']) < sound_speed.shape[1]
+                assert int(slice['position']) < density_map.shape[1]
+                s_slice_data = sound_speed[:, int(slice['position']), :].copy()
+                d_slice_data = density_map[:, int(slice['position']), :].copy()
+            elif slice['axis'] == 'z':
+                assert int(slice['position']) < sound_speed.shape[2]
+                assert int(slice['position']) < density_map.shape[2]
+                s_slice_data = sound_speed[:, :, int(slice['position'])].copy()
+                d_slice_data = density_map[:, :, int(slice['position'])].copy()
+            else:
+                assert False, "Invalid export slice!"
+            s_slice_data -= s_slice_data.min()
+            s_slice_data /= s_slice_data.max()
+            d_slice_data -= d_slice_data.min()
+            d_slice_data /= d_slice_data.max()
+            cv.imwrite(os.path.join(dirname, 'sound_speed.png'), (s_slice_data * 255).astype(np.uint8))
+            cv.imwrite(os.path.join(dirname, 'density_map.png'), (d_slice_data * 255).astype(np.uint8))
 
 
     # Start GIF and MeshReader processes

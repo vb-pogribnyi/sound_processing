@@ -10,7 +10,6 @@ import pickle
 
 def export(experiment, mics, sensors_direction, angle_step, space_step, debug_file=None):
     exp_descr_path = os.path.join('/experiments', experiment, 'experiment.yml')
-    exp_result_path = os.path.join('/experiments', experiment, 'exported.pkl')
     exp_output_path = os.path.join('/experiments', experiment, 'outputs')
     assert os.path.exists(exp_descr_path), "Invalid experiment"
     assert os.path.exists(exp_output_path), "Invalid experiment"
@@ -18,6 +17,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     assert len(out_files) > 0, "Invalid experiment"
     exp_descr = yaml.load(open(exp_descr_path), Loader=yaml.FullLoader)
     export_path = os.path.join('/experiments', experiment, 'export')
+    exp_result_path = os.path.join(export_path, 'exported.pkl')
     if os.path.exists(export_path):
         shutil.rmtree(export_path)
     os.makedirs(export_path)
@@ -216,6 +216,10 @@ if __name__ == "__main__":
         [0.05, 0.00, 0.00],
         [0.10, 0.00, 0.00],
         [0.15, 0.00, 0.00],
+        [0.00, 0.09, 0.00],
+        [0.05, 0.09, 0.00],
+        [0.10, 0.09, 0.00],
+        [0.15, 0.09, 0.00],
         # [0.00, 0.00, 0.002],
         # [0.05, 0.00, 0.002],
         # [0.00, 0.06, 0.002],
