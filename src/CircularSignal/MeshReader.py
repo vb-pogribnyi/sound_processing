@@ -65,6 +65,7 @@ class MeshReader:
         new_times = np.arange(timestep_start, timestep_end, 1)
         while np.max(old_times) < np.max(new_times):
             old_times += steps_overall * speed
+        old_times = np.round(old_times).astype(int)
         assert np.min(old_times) <= np.min(new_times), "Wrong time scaling"
         assert np.max(old_times) >= np.max(new_times), "Wrong time scaling"
         interp = interp1d(
@@ -80,9 +81,9 @@ class MeshReader:
 
 if __name__ == '__main__':
     reader = MeshReader('/app/input_mesh/test2')
-    step = 400
+    step = 256
     out_step = 15
-    idx_start = 0
+    idx_start = 103424
 
     images = None
 
@@ -106,12 +107,12 @@ if __name__ == '__main__':
         )
 
 
-    while idx_start < 50000:
+    while idx_start < 104000:
         print("Processing index", idx_start)
-        slow = reader.sample(0.95, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
+        slow = reader.sample(1.4, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
         print('----')
         normal = reader.sample(1.0, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
         print('----')
-        fast = reader.sample(1.05, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
+        fast = reader.sample(0.8, idx_start, idx_start + step)[:, :, 8, ::out_step].real.astype(np.uint8)
         process_images(np.concatenate([slow, normal, fast], axis=1).transpose(2, 0, 1))
         idx_start += step
