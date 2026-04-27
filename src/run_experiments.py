@@ -349,7 +349,9 @@ def run_experiment(base_path, config):
             start_idx = 1
         
         # +1 due to the output at 0s step
-        n_samples_prepared = int(output['t_index'] / sampling_period) + 1 - n_samples_ready
+        n_samples_prepared = int(output['t_index'] / sampling_period) - n_samples_ready
+        if output['t_index'] % sampling_period > 0:
+            n_samples_prepared += 1
         assert start_idx + n_samples_prepared <= sensor_data.shape[-1], "Wrong number of samples prepared"
         # assert np.sum(np.abs(sensor_data[:, :, :, start_idx + n_samples_prepared:])) == 0, "Skipping nonempty samples."
         n_samples_ready += n_samples_prepared
@@ -381,7 +383,10 @@ def run_experiment(base_path, config):
         with h5py.File(str(execution_options.checkpoint_file), 'r') as f:
             out_ckpt_time = f['t_index'][0][0, 0]
             out_n_samples_ready = len([f.name for f in os.scandir(result_dir)])
-            expected_samples = int(out_ckpt_time / sampling_period) + 1 # +1 due to the output at 0s step
+            expected_samples = int(out_ckpt_time / sampling_period)
+            # +1 due to the output at 0s step
+            if out_ckpt_time % sampling_period > 0:
+                expected_samples += 1
             assert expected_samples == out_n_samples_ready, "Number of samples number available does not match the expected number."
         if not os.path.exists(execution_options.checkpoint_file):
             break

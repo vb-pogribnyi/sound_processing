@@ -13,7 +13,7 @@
 11. + Use tmpfs (ram-based) for generating inputs into kwave
 12. Make sure that the frequency is correct and dimensions are right.
 13. + Add density and sound speed variations
-14. Weird shifts at certain moments? (exp 002, pure sine @ 44 khz - 127-128 sample)
+14. + Weird shifts at certain moments? (exp 002, pure sine @ 44 khz - 127-128 sample)
 15. If a ckpt exists but the .bak does not - discard the checkpoint and start over.
 16. Calculate whether to record the first time step in a correct way (currently it's checking if the output is empty.
 17. Faster generation of profile meshes
@@ -33,5 +33,5 @@
 11. + While exporting audio data, write only indexes in the arrays, populate afterwards
 12. - Create debug configuration where the density would change dramatically at some position - to debug the exported data.
 13. - In the exported debug image draw the energy (or frequency) of the received signal - something that indicates higher density.
-14. Write exported data gradually - currently it required massive amounts of RAM
+14. + Write exported data gradually - currently it required massive amounts of RAM
 15. + It seems to split z axis in halfs with heterogenous configuration (Add density slices at same positions as pressure)

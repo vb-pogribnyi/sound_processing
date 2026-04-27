@@ -17,6 +17,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     assert len(out_files) > 0, "Invalid experiment"
     exp_descr = yaml.load(open(exp_descr_path), Loader=yaml.FullLoader)
     export_path = os.path.join('/experiments', experiment, 'export')
+    exp_result_dir = os.path.join(export_path, 'compiled_values')
     exp_result_path = os.path.join(export_path, 'exported.pkl')
     if os.path.exists(export_path):
         shutil.rmtree(export_path)
@@ -24,6 +25,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     angles = np.arange(-90, 90, angle_step)
     rot_z = Rotation.from_euler('z', angles, degrees=True)
     rot_x = Rotation.from_euler('x', angles, degrees=True)
+    os.makedirs(exp_result_dir, exist_ok=True)
     mics_z = np.stack([r.apply(mics) for r in rot_z])
     mics_xz = np.stack([r.apply(mics_z.reshape(-1, 3)) for r in rot_x]).reshape(len(rot_x), len(rot_z), mics.shape[0], mics.shape[1])
 
@@ -33,6 +35,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
 
     mics_xz -= np.expand_dims(np.mean(mics_xz, axis=2), 2)
     result = {}
+
     for sensors_origin_x in tqdm(np.arange(exp_descr['export']['x_start'], exp_descr['export']['x_end'], space_step[0]), position=0):
         for sensors_origin_y in tqdm(np.arange(exp_descr['export']['y_start'], exp_descr['export']['y_end'], space_step[1]), position=1, leave=False):
             for sensors_origin_z in tqdm(np.arange(exp_descr['export']['z_start'], exp_descr['export']['z_end'], space_step[2]), position=2, leave=False):
@@ -77,13 +80,12 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                             array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
                                 round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
                                 round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)])
-                            for _ in out_files:
-                                # Write indices for now. Actual data will be filled later, to save number of file reads.
-                                array_snapshot['mic_values'][mic_idx].append((
-                                    mic_out_idx_z,
-                                    mic_out_idx_y,
-                                    mic_out_idx_x
-                                ))
+                            # Indices of the data items in out_files. To be filled with actual data later - to reduce file reads
+                            array_snapshot['mic_values'][mic_idx].append((
+                                mic_out_idx_z,
+                                mic_out_idx_y,
+                                mic_out_idx_x
+                            ))
                         if not is_positions_valid:
                             continue
                             
@@ -116,10 +118,12 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     result = {r: result[r] for r in result if len(result[r]) > 0}
     for out_file_idx, out_file in tqdm(enumerate(out_files), position=0):
         out_data = np.load(out_file)
-        for position in tqdm(result, position=1, leave=False):
-            for rotation in tqdm(result[position], position=2, leave=False):
-                for mic_value in result[position][rotation]['mic_values']:
-                    mic_value[out_file_idx] = out_data[mic_value[out_file_idx]]
+        step_result = result.copy()
+        for position in tqdm(step_result, position=1, leave=False):
+            for rotation in tqdm(step_result[position], position=2, leave=False):
+                for mic_value in step_result[position][rotation]['mic_values']:
+                    mic_value = out_data[mic_value[0]]
+        pickle.dump(step_result, open(os.path.join(exp_result_dir, f'{str(out_file_idx).zfill(5)}.pkl'), 'wb'))
     print('Dumping into file...')
     pickle.dump(result, open(exp_result_path, 'wb'))
 
