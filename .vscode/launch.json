@@ -30,6 +30,13 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "SliceOutput",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/app/src/slice_output.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "MeshReader",
             "type": "debugpy",
             "request": "launch",

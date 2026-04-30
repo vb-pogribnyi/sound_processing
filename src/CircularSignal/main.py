@@ -14,7 +14,7 @@ rpm = 3500
 rps = rpm / 60      # revolutions per second
 nblades=1
 nbladess = [1, 2, 3]
-ndivs = 50
+ndivs = 150
 mesh_div = 0.002    # 2 mm mesh step
 mesh_divs = [0.002, 0.02]
 if rps == 0:
@@ -57,7 +57,7 @@ for profile in profiles:
                 nblades=nblades,
                 blade_length=0.1,       # 10 cm
                 blade_width=0.015,      # 1.5 cm
-                blade_thickness=0.015   # 15 mm - while plane; signal itself will be thinner
+                blade_thickness=0.015   # 15 mm - whole plane; signal itself will be thinner
             )
             angle = 0
             for mesh_idx in tqdm(range(ndivs), position=0):

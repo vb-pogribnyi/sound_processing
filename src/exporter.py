@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation
 import cv2 as cv
 from tqdm import tqdm
 import pickle
+import copy
 
 def export(experiment, mics, sensors_direction, angle_step, space_step, debug_file=None):
     exp_descr_path = os.path.join('/experiments', experiment, 'experiment.yml')
@@ -65,11 +66,11 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                             mic_out_idx_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x)
                             mic_out_idx_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y)
                             mic_out_idx_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)
-                            if mic_out_idx_x < 0 or mic_out_idx_x >= exp_descr['export']['x_end']:
+                            if mic_out_idx_x < exp_descr['export']['x_start'] or mic_out_idx_x >= exp_descr['export']['x_end']:
                                 is_positions_valid = False
-                            if mic_out_idx_y < 0 or mic_out_idx_y >= exp_descr['export']['y_end']:
+                            if mic_out_idx_y < exp_descr['export']['y_start'] or mic_out_idx_y >= exp_descr['export']['y_end']:
                                 is_positions_valid = False
-                            if mic_out_idx_z < 0 or mic_out_idx_z >= exp_descr['export']['z_end']:
+                            if mic_out_idx_z < exp_descr['export']['z_start'] or mic_out_idx_z >= exp_descr['export']['z_end']:
                                 is_positions_valid = False
                             if not is_positions_valid:
                                 break
@@ -77,9 +78,16 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                             mic_out_idx_y -= exp_descr['export']['y_start']
                             mic_out_idx_z -= exp_descr['export']['z_start']
 
-                            array_snapshot['mic_positions'].append([round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x),
-                                round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y),
-                                round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)])
+                            mic_pos_x = round(mic[0] / exp_descr['mesh']['dx'] + sensors_origin_x)
+                            mic_pos_y = round(mic[1] / exp_descr['mesh']['dy'] + sensors_origin_y)
+                            mic_pos_z = round(mic[2] / exp_descr['mesh']['dz'] + sensors_origin_z)
+                            assert mic_pos_x >= exp_descr['export']['x_start']
+                            assert mic_pos_x < exp_descr['export']['x_end']
+                            assert mic_pos_y >= exp_descr['export']['y_start']
+                            assert mic_pos_y < exp_descr['export']['y_end']
+                            assert mic_pos_z >= exp_descr['export']['z_start']
+                            assert mic_pos_z < exp_descr['export']['z_end']
+                            array_snapshot['mic_positions'].append([mic_pos_x, mic_pos_y, mic_pos_z])
                             # Indices of the data items in out_files. To be filled with actual data later - to reduce file reads
                             array_snapshot['mic_values'][mic_idx].append((
                                 mic_out_idx_z,
@@ -116,13 +124,13 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
 
     print("Filling with data...")
     result = {r: result[r] for r in result if len(result[r]) > 0}
+    step_result = copy.deepcopy(result)
     for out_file_idx, out_file in tqdm(enumerate(out_files), position=0):
         out_data = np.load(out_file)
-        step_result = result.copy()
-        for position in tqdm(step_result, position=1, leave=False):
-            for rotation in tqdm(step_result[position], position=2, leave=False):
-                for mic_value in step_result[position][rotation]['mic_values']:
-                    mic_value = out_data[mic_value[0]]
+        for position in tqdm(result, position=1, leave=False):
+            for rotation in tqdm(result[position], position=2, leave=False):
+                for mic_id, mic_value in enumerate(result[position][rotation]['mic_values']):
+                    step_result[position][rotation]['mic_values'][mic_id] = out_data[mic_value[0]]
         pickle.dump(step_result, open(os.path.join(exp_result_dir, f'{str(out_file_idx).zfill(5)}.pkl'), 'wb'))
     print('Dumping into file...')
     pickle.dump(result, open(exp_result_path, 'wb'))
@@ -231,4 +239,4 @@ if __name__ == "__main__":
     ])
     sensors_direction = np.array([[0, -1, 0]])
     # export('001', mics, sensors_direction, 5, [100, 100, 5], 'debug_img.png')
-    export('002', mics, sensors_direction, 5, [120, 35, 25], 'debug_img.png')
+    export('002', mics, sensors_direction, 5, [100, 25, 15], 'debug_img.png')
