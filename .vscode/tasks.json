@@ -19,6 +19,11 @@
             "command": "rm -rf /experiments/002/processing && rm -rf /experiments/002/outputs && rm -rf /experiments/002/slices && rm -rf /inputs/processing"
         },
         {
+            "label": "clear_exp003",
+            "type": "shell",
+            "command": "rm -rf /experiments/003/processing && rm -rf /experiments/003/outputs && rm -rf /experiments/003/slices && rm -rf /inputs/processing"
+        },
+        {
             "label": "clear_slices",
             "type": "shell",
             "command": "rm -rf /app/slices"
