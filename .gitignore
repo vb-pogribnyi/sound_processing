@@ -14,4 +14,5 @@ outputs
 slices
 input_mesh
 kwave/bin/*
+Generation/KWave/kwave/bin/linux/kspaceFirstOrder-CUDA
 
