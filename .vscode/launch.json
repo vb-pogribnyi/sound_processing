@@ -20,7 +20,7 @@
             "request": "launch",
             "program": "/app/Generation/KWave/src/run_experiments.py",
             "console": "integratedTerminal",
-            "preLaunchTask": "clear_exp003"
+            // "preLaunchTask": "clear_exp003"
         },
         {
             "name": "ExportExperiment",
