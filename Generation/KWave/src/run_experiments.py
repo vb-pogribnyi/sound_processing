@@ -321,8 +321,8 @@ def run_experiment(base_path, config):
             ckpt_time = f['t_index'][0][0, 0]
             start_step_idx = int(ckpt_time/execution_options.checkpoint_timesteps)
         shutil.copy(bkp_ckpt_file, execution_options.checkpoint_file)
-    if os.path.exists('/app/Generation/KWave/outputs'):
-        n_samples_ready = len([f.name for f in os.scandir('/app/Generation/KWave/outputs')])
+    if os.path.exists(result_dir):
+        n_samples_ready = len([f.name for f in os.scandir(result_dir)])
     out_idx = n_samples_ready
     current_time = ckpt_time
     source_task_queue.put((current_time, current_time + Nt, config['sources']))
