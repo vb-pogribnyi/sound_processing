@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 import sys
-sys.path.append('/app')
+sys.path.append('/app/Generation/KWave/')
 from utils import spheres_noise
 
 from kwave.data import Vector
@@ -28,6 +28,8 @@ import resource
 from multiprocessing import Process, Queue
 from multiprocessing.shared_memory import SharedMemory
 
+
+Nt = 512
 def worker_gif(task_queue, logger):
     while True:
         dirnames = set()
@@ -81,8 +83,6 @@ def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, m
         out_queue.put(msg)
 
 
-Nt = 1024
-
 def save_slice_img(slice, dirname, out_idx, gif_task_queue):
     os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
     slice = np.stack([slice, np.zeros_like(slice), slice], axis=-1)
@@ -100,9 +100,9 @@ def save_slice_img(slice, dirname, out_idx, gif_task_queue):
 
 def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger):
     src_files = {}
-    mesh_meta = json.load(open(os.path.join('/app/input_mesh', source_cfg['type'], 'meta.json')))
+    mesh_meta = json.load(open(os.path.join('/app/Generation/KWave/input_mesh', source_cfg['type'], 'meta.json')))
     dt = float(mesh_meta['dt'])
-    for f in os.scandir(os.path.join('/app/input_mesh', source_cfg['type'])):
+    for f in os.scandir(os.path.join('/app/Generation/KWave/input_mesh', source_cfg['type'])):
         if f.name.split('.')[-1] == 'npz':
             src_files[f.name.split('.')[0]] = f.path
 
@@ -166,7 +166,7 @@ def run_experiment(base_path, config):
     zmin, zmax = None, None
     mesh_readers = {}
     for source in config['sources']:
-        mesh_meta = json.load(open(os.path.join('/app/input_mesh', source['type'], 'meta.json')))
+        mesh_meta = json.load(open(os.path.join('/app/Generation/KWave/input_mesh', source['type'], 'meta.json')))
         # assert mesh_meta['nt'] == Nt, "Number of timesteps must match for each mesh"
         assert mesh_meta['dx'] == config['mesh']['dx'], "DX for source mesh must match computational mesh"
         assert mesh_meta['dy'] == config['mesh']['dy'], "DY for source mesh must match computational mesh"
@@ -176,7 +176,7 @@ def run_experiment(base_path, config):
         ymin, ymax = get_mesh_bounds(ymin, ymax, source, mesh_meta, 'y', 'ny')
         zmin, zmax = get_mesh_bounds(zmin, zmax, source, mesh_meta, 'z', 'nz')
         if not source['type'] in mesh_readers:
-            mesh_readers[source['type']] = MeshReader(os.path.join('/app/input_mesh', source['type']))
+            mesh_readers[source['type']] = MeshReader(os.path.join('/app/Generation/KWave/input_mesh', source['type']))
     assert xmin is not None and xmax is not None, "No sources loaded!"
     assert ymin is not None and ymax is not None, "No sources loaded!"
     assert zmin is not None and zmax is not None, "No sources loaded!"
@@ -199,8 +199,8 @@ def run_experiment(base_path, config):
         medium = kWaveMedium(sound_speed=343)
         medium.density = 1
     else:
-        sound_speed = spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/c_noise.png')
-        density_map = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/density_noise.png')
+        sound_speed = spheres_noise(kgrid, base_val=343, min_val=340, max_val=345, min_rad=5, max_rad=1024, seed=33, dbg_file='/app/Generation/KWave/c_noise.png')
+        density_map = spheres_noise(kgrid, base_val=1.225, min_val=1.2, max_val=1.25, min_rad=5, max_rad=1024, seed=25, dbg_file='/app/Generation/KWave/density_noise.png')
         medium = kWaveMedium(sound_speed=sound_speed)
         gc.collect()
         medium.density = density_map
@@ -308,7 +308,7 @@ def run_experiment(base_path, config):
     execution_options.checkpoint_file = os.path.join(proc_dir, 'ckpt.h5')
     execution_options.checkpoint_timesteps = Nt
     execution_options.output_file = os.path.join(proc_dir, 'output.h5')
-    execution_options.binary_path = Path('/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA')
+    execution_options.binary_path = Path('/app/Generation/KWave/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA')
     execution_options.sampling_period = sampling_period
 
     # The Execution
@@ -321,8 +321,8 @@ def run_experiment(base_path, config):
             ckpt_time = f['t_index'][0][0, 0]
             start_step_idx = int(ckpt_time/execution_options.checkpoint_timesteps)
         shutil.copy(bkp_ckpt_file, execution_options.checkpoint_file)
-    if os.path.exists('/app/outputs'):
-        n_samples_ready = len([f.name for f in os.scandir('/app/outputs')])
+    if os.path.exists('/app/Generation/KWave/outputs'):
+        n_samples_ready = len([f.name for f in os.scandir('/app/Generation/KWave/outputs')])
     out_idx = n_samples_ready
     current_time = ckpt_time
     source_task_queue.put((current_time, current_time + Nt, config['sources']))

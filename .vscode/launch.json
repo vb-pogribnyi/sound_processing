@@ -18,7 +18,7 @@
             "name": "RunExperiments",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/run_experiments.py",
+            "program": "/app/Generation/KWave/src/run_experiments.py",
             "console": "integratedTerminal",
             "preLaunchTask": "clear_exp003"
         },
@@ -26,21 +26,21 @@
             "name": "ExportExperiment",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/exporter.py",
+            "program": "/app/Generation/KWave/src/exporter.py",
             "console": "integratedTerminal"
         },
         {
             "name": "SliceOutput",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/slice_output.py",
+            "program": "/app/Generation/KWave/src/slice_output.py",
             "console": "integratedTerminal"
         },
         {
             "name": "MeshReader",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/CircularSignal/MeshReader.py",
+            "program": "/app/Generation/KWave/src/CircularSignal/MeshReader.py",
             "console": "integratedTerminal"
         },
 
@@ -55,7 +55,7 @@
             "name": "DrawOutputs",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/draw_outputs.py",
+            "program": "/app/Generation/KWave/src/draw_outputs.py",
             "console": "integratedTerminal",
             "preLaunchTask": "clear_slices"
         },
@@ -63,7 +63,7 @@
             "name": "FileSource",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/02_file_source.py",
+            "program": "/app/Generation/KWave/src/02_file_source.py",
             "console": "integratedTerminal",
             "preLaunchTask": "clear_kwave"
         },
@@ -71,7 +71,7 @@
             "name": "GenerateProfile",
             "type": "debugpy",
             "request": "launch",
-            "program": "/app/src/CircularSignal/main.py",
+            "program": "/app/Generation/KWave/src/CircularSignal/main.py",
             "console": "integratedTerminal"
         },
 
