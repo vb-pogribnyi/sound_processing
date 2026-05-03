@@ -82,61 +82,13 @@
 
 
 
-        // {
-        //     "name": "KWave he",
-        //     "type": "cppdbg",
-        //     "request": "launch",
-        //     "program": "/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA",
-        //     "args": [
-        //         "-i", "/app/processing/input_heterogenous.h5", "-o", "/app/processing/output.h5", 
-        //         "-t", "12", "--checkpoint_timesteps", "648", "--checkpoint_file", "/app/processing/ckpt.h5", 
-        //         "--p_raw", "-s", "1", "--s_period", "62"
-        //     ],
-        //     "stopAtEntry": false,
-        //     "cwd": "/app",
-        //     "environment": [],
-        //     "externalConsole": false,
-        //     "MIMode": "gdb",
-        //     "setupCommands": [
-        //         {
-        //             "description": "Enable pretty-printing for gdb",
-        //             "text": "-enable-pretty-printing",
-        //             "ignoreFailures": true
-        //         },
-        //         {
-        //             "description": "Set Disassembly Flavor to Intel",
-        //             "text": "-gdb-set disassembly-flavor intel",
-        //             "ignoreFailures": true
-        //         }
-        //     ]
-        // },
-        // {
-        //     "name": "KWave ho",
-        //     "type": "cppdbg",
-        //     "request": "launch",
-        //     "program": "/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA",
-        //     "args": [
-        //         "-i", "/app/processing/input_homogenous.h5", "-o", "/app/processing/output.h5", 
-        //         "-t", "12", "--checkpoint_timesteps", "648", "--checkpoint_file", "/app/processing/ckpt.h5", 
-        //         "--p_raw", "-s", "1", "--s_period", "62"
-        //     ],
-        //     "stopAtEntry": false,
-        //     "cwd": "/app",
-        //     "environment": [],
-        //     "externalConsole": false,
-        //     "MIMode": "gdb",
-        //     "setupCommands": [
-        //         {
-        //             "description": "Enable pretty-printing for gdb",
-        //             "text": "-enable-pretty-printing",
-        //             "ignoreFailures": true
-        //         },
-        //         {
-        //             "description": "Set Disassembly Flavor to Intel",
-        //             "text": "-gdb-set disassembly-flavor intel",
-        //             "ignoreFailures": true
-        //         }
-        //     ]
-        // }
+
+        {
+            "name": "Create Dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Analysis/ProcessMMAUD/create_dataset.py",
+            "console": "integratedTerminal"
+        },
     ]
 }

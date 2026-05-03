@@ -9,6 +9,7 @@
 *.pkl
 *.flag
 *.zip
+*.wav
 processing
 outputs
 slices
