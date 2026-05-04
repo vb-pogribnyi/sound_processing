@@ -90,5 +90,12 @@
             "program": "Analysis/ProcessMMAUD/create_dataset.py",
             "console": "integratedTerminal"
         },
+        {
+            "name": "Export Waveforms",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Analysis/ProcessMMAUD/export_waveforms.py",
+            "console": "integratedTerminal"
+        },
     ]
 }
