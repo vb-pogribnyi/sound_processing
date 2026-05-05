@@ -97,5 +97,18 @@
             "program": "Analysis/ProcessMMAUD/export_waveforms.py",
             "console": "integratedTerminal"
         },
+        {
+            "name": "Train TAME",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Analysis/TAME/train_stub.py",
+            "args": [
+                "--audio_path", "outputs/audio", 
+                "--gt_position_path", "outputs/gt", 
+                "--gt_cls_path", "outputs/cls", 
+                "--train_split_path", "outputs/train_split.txt", 
+                "--val_split_path", "outputs/val_split.txt"],
+            "console": "integratedTerminal"
+        },
     ]
 }
