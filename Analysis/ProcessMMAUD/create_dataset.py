@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 
 AUDIO_WINDOW = 4096
 AUDIO_HOP = 128
+IS_DEBUG = True
 
 def process_file(audio_file):
     audio_data = pickle.load(open(audio_file, 'rb'))
@@ -31,15 +32,16 @@ def process_file(audio_file):
             audio_data['ground_truth']['y'][idx],
             audio_data['ground_truth']['z'][idx]
         ]
-        time = int(audio_data['timestamps']['/audio1/audio'][idx]) - time_start
-        time_ms = time // 1000000
-        time_seconds = time_ms / 1000
-        time_minutes = time_seconds // 60
-        if time_seconds > 26:
-            print(gt, time_minutes, time_seconds % 60)
-            plt.title(f"Time: {time_minutes}:{time_seconds}")
-            [plt.plot(audio_item) for audio_item in audio]
-            plt.show()
+        if IS_DEBUG:
+            time = int(audio_data['timestamps']['/audio1/audio'][idx]) - time_start
+            time_ms = time // 1000000
+            time_seconds = time_ms / 1000
+            time_minutes = time_seconds // 60
+            if time_seconds > 26:
+                print(gt, time_minutes, time_seconds % 60)
+                plt.title(f"Time: {time_minutes}:{time_seconds}")
+                [plt.plot(audio_item) for audio_item in audio]
+                plt.show()
 
 if __name__ == '__main__':
     process_file('Mavic3_decoded.pkl')
