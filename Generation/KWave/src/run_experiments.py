@@ -316,11 +316,13 @@ def run_experiment(base_path, config):
     n_samples_ready = 0
     start_step_idx = 0
     bkp_ckpt_file = str(execution_options.checkpoint_file).replace(proc_dir, bkp_proc_dir) + '.bkp'
-    if os.path.exists(execution_options.checkpoint_file):
+    bkp_output_file = str(execution_options.output_file).replace(proc_dir, bkp_proc_dir) + '.bkp'
+    if os.path.exists(bkp_ckpt_file):
         with h5py.File(bkp_ckpt_file, 'r') as f:
             ckpt_time = f['t_index'][0][0, 0]
             start_step_idx = int(ckpt_time/execution_options.checkpoint_timesteps)
         shutil.copy(bkp_ckpt_file, execution_options.checkpoint_file)
+        shutil.copy(bkp_output_file, execution_options.output_file)
     if os.path.exists(result_dir):
         n_samples_ready = len([f.name for f in os.scandir(result_dir)])
     out_idx = n_samples_ready
@@ -380,6 +382,10 @@ def run_experiment(base_path, config):
                     assert False, "Invalid export slice!"
                 save_slice_img(slice_data, dirname, out_idx, gif_task_queue)
             out_idx += 1
+        if not os.path.exists(execution_options.checkpoint_file):
+            with open(os.path.join(base_path, 'done.flag'), 'w') as fp:
+                pass
+            break
         # Check if the number of files generated matches the one recorded in checkpoint
         with h5py.File(str(execution_options.checkpoint_file), 'r') as f:
             out_ckpt_time = f['t_index'][0][0, 0]
@@ -389,11 +395,11 @@ def run_experiment(base_path, config):
             if out_ckpt_time % sampling_period > 0:
                 expected_samples += 1
             assert expected_samples == out_n_samples_ready, "Number of samples number available does not match the expected number."
-        if not os.path.exists(execution_options.checkpoint_file):
-            break
-        else:
+
+        if os.path.exists(execution_options.checkpoint_file):
             # If the outputs were saved successfully, save the checkpoint file in case if something goes wrong.
             shutil.copy(execution_options.checkpoint_file, bkp_ckpt_file)
+            shutil.copy(execution_options.output_file, bkp_output_file)
 
 if __name__ == '__main__':
     experiments_base = '/experiments'
