@@ -21,7 +21,8 @@ def complex_multiplication(x, y):
 
 
 def complex_conjugate_multiplication(x, y):
-	return torch.stack([ x[...,0]*y[...,0] + x[...,1]*y[...,1],   x[...,1]*y[...,0] - x[...,0]*y[...,1]  ], dim=-1)
+	return x * torch.conj(y)
+	# return torch.stack([ x[...,0]*y[...,0] + x[...,1]*y[...,1],   x[...,1]*y[...,0] - x[...,0]*y[...,1]  ], dim=-1)
 
 
 def complex_cart2polar(x):
@@ -86,16 +87,16 @@ class GCC(nn.Module):
 		self.transform = transform
 	
 	def forward(self, x):
-		x_fft = torch.rfft(x, 1)
+		x_fft = torch.fft.rfft(x, dim=-1)
 		if self.transform == 'PHAT':
-			mod = torch.sqrt( complex_conjugate_multiplication(x_fft, x_fft) )[..., 0]
+			mod = torch.sqrt( complex_conjugate_multiplication(x_fft, x_fft) )
 			mod += 1e-12 # To avoid numerical issues
-			x_fft /= mod.reshape(tuple(x_fft.shape[:-1])+(1,))
+			x_fft /= mod#.reshape(tuple(x_fft.shape[:-1])+(1,))
 		
-		gcc = torch.empty(list(x_fft.shape[0:-3]) + [self.N, self.N, 2*self.tau_max+1], device=x.device)
+		gcc = torch.empty(list(x_fft.shape[0:-2]) + [self.N, self.N, 2*self.tau_max+1], device=x.device)
 		for n in range(self.N):
-			gcc_fft_batch = complex_conjugate_multiplication( x_fft[...,n,:,:].unsqueeze(-3), x_fft )
-			gcc_batch = torch.irfft(gcc_fft_batch, 1, signal_sizes=(self.K,))
+			gcc_fft_batch = complex_conjugate_multiplication( x_fft[...,n,:].unsqueeze(-2), x_fft )
+			gcc_batch = torch.fft.irfft(gcc_fft_batch, dim=-1)
 			gcc[..., n, :, 0:self.tau_max+1] = gcc_batch[..., 0:self.tau_max+1]
 			gcc[..., n, :, -self.tau_max:] = gcc_batch[..., -self.tau_max:]
 			
@@ -133,7 +134,7 @@ class SRP_map(nn.Module):
 				self.IMTDF[:,:,k,l] = np.dot( r, rn[l,:]-rn[k,:] ) / c
 
 		tau = np.concatenate([range(0, K//2+1), range(-K//2+1, 0)])/float(fs) # Valid discrete values
-		self.tau0 = np.zeros_like(self.IMTDF, dtype=np.int)
+		self.tau0 = np.zeros_like(self.IMTDF, dtype=np.int64)
 		for k in range(self.N):
 			for l in range(self.N):
 				for i in range(resTheta):

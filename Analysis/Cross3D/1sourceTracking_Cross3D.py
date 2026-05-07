@@ -24,10 +24,10 @@ res_the = 32  # Maps resolution (elevation)
 res_phi = 64  # Maps resolution (azimuth)
 
 K = 4096  # Window size
-fs = 16000
+fs = 48000
 
-N = 12
-array_setup = at_dataset.benchmark2_array_setup
+# N = 12
+array_setup = at_dataset.mmaud_array_setup
 array_name = 'robot'  # Only for the output filenames
 array_locata_name = 'benchmark2'  # Name of the array in the LOCATA dataset
 
@@ -40,33 +40,23 @@ if extra_notes is not None and extra_notes != '':
 
 # %% Dataset
 T = 20 # Trajectory length (s)
-path_train = "datasets/LibriSpeech/train-clean-100"
-path_test = "datasets/LibriSpeech/test-clean"
-corpusDataset_train = at_dataset.LibriSpeechDataset(path_train, T, return_vad=True)
-corpusDataset_test = at_dataset.LibriSpeechDataset(path_test, T, return_vad=True)
+# path_train = "outputs/train_split.txt"
+# path_test = "datasets/LibriSpeech/test-clean"
+corpusDataset_train = at_dataset.MMAUDDataset("outputs/train_split.txt", "outputs/gt", "outputs/audio")
+corpusDataset_test = at_dataset.MMAUDDataset("outputs/val_split.txt", "outputs/gt", "outputs/audio")
 
 windowing = at_dataset.Windowing(K, K*3//4, window=np.hanning)
 
-dataset_train = at_dataset.RandomTrajectoryDataset(
+dataset_train = at_dataset.MMAUDTrajectoryDataset(
 	sourceDataset = corpusDataset_train,
-	room_sz = Parameter([3,3,2.5], [10,8,6]),  	# Random room sizes from 3x3x2.5 to 10x8x6 meters
-	T60 = Parameter(0.2, 1.3),					# Random reverberation times from 0.2 to 1.3 seconds
-	abs_weights = Parameter([0.5]*6, [1.0]*6),  # Random absorption weights ratios between walls
 	array_setup = array_setup,
-	array_pos = Parameter([0.1, 0.1, 0.1], [0.9, 0.9, 0.5]), # Ensure a minimum separation between the array and the walls
-	SNR = Parameter(30), 	# Start the simulation with a low level of omnidirectional noise
-	nb_points = 156,		# Simulate 156 RIRs per trajectory (independent from the SRP-PHAT window length
+	array_pos = Parameter([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]), # Ensure a minimum separation between the array and the walls
 	transforms = [windowing]
 )
-dataset_test = at_dataset.RandomTrajectoryDataset(  # The same setup than for training but with other source signals
+dataset_test = at_dataset.MMAUDTrajectoryDataset(  # The same setup than for training but with other source signals
 	sourceDataset = corpusDataset_test,
-	room_sz = Parameter([3,3,2.5], [10,8,6]),
-	T60 = Parameter(0.2, 1.3),
-	abs_weights = Parameter([0.5]*6, [1.0]*6),
 	array_setup = array_setup,
-	array_pos = Parameter([0.1, 0.1, 0.1], [0.9, 0.9, 0.5]),
-	SNR = Parameter(30),
-	nb_points = 156,
+	array_pos = Parameter([0.1, 0.1, 0.1], [0.0, 0.0, 0.0]),
 	transforms = [windowing]
 )
 
@@ -74,6 +64,7 @@ dataset_test = at_dataset.RandomTrajectoryDataset(  # The same setup than for tr
 # %% Network declaration
 cr_deep = int(min(4, np.log2(min(res_the, res_phi))))  # For low resolution maps it is not possible to perform 4 cross layers
 net = at_models.Cross3D(res_the, res_phi, cr_deep=cr_deep)
+N = array_setup.mic_pos.shape[0]
 learner = at_learners.OneSourceTrackingFromMapsLearner(net, N, K, res_the, res_phi, array_setup.mic_pos, fs,
 													   arrayType=array_setup.arrayType, cat_maxCoor=True, apply_vad=True)
 learner.cuda()

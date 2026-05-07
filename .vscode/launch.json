@@ -110,5 +110,12 @@
                 "--val_split_path", "outputs/val_split.txt"],
             "console": "integratedTerminal"
         },
+        {
+            "name": "Cross3D",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Analysis/Cross3D/1sourceTracking_Cross3D.py",
+            "console": "integratedTerminal"
+        },
     ]
 }

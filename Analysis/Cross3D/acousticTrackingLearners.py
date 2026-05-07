@@ -11,7 +11,7 @@
 import numpy as np
 import torch
 import torch.optim as optim
-import webrtcvad
+# import webrtcvad
 from abc import ABC, abstractmethod
 from tqdm import trange
 
@@ -232,10 +232,10 @@ class OneSourceTrackingFromMapsLearner(OneSourceTrackingLearner):
 		self.res_phi = res_phi
 
 		self.cat_maxCoor = cat_maxCoor
-		self.apply_vad = apply_vad
-		if apply_vad:
-			self.vad = webrtcvad.Vad()
-			self.vad.set_mode(3)
+		# self.apply_vad = apply_vad
+		# if apply_vad:
+		# 	# self.vad = webrtcvad.Vad()
+		# 	self.vad.set_mode(3)
 
 		dist_max = np.max([np.max([np.linalg.norm(rn[n, :] - rn[m, :]) for m in range(N)]) for n in range(N)])
 		tau_max = int(np.ceil(dist_max / c * fs))
@@ -243,11 +243,11 @@ class OneSourceTrackingFromMapsLearner(OneSourceTrackingLearner):
 		self.srp = at_modules.SRP_map(N, K, res_the, res_phi, rn, fs,
 									  thetaMax=np.pi / 2 if arrayType == 'planar' else np.pi)
 
-	def activate_vad(self, apply=True):
-		self.apply_vad = apply
-		if self.apply_vad:
-			self.vad = webrtcvad.Vad()
-			self.vad.set_mode(3)
+	# def activate_vad(self, apply=True):
+	# 	self.apply_vad = apply
+	# 	if self.apply_vad:
+	# 		# self.vad = webrtcvad.Vad()
+	# 		self.vad.set_mode(3)
 
 	def data_transformation(self, mic_sig_batch=None, acoustic_scene_batch=None, vad_batch=None):
 		""" Compute the SRP-PHAT maps from the microphone signals and extract the DoA groundtruth from the AcousticScene
@@ -274,21 +274,21 @@ class OneSourceTrackingFromMapsLearner(OneSourceTrackingLearner):
 								  max_phi[..., None, None].repeat(repeat_factor.tolist())
 								  ), 1)
 
-			if self.apply_vad:
-				if acoustic_scene_batch is not None:
-					vad_batch =  np.array([acoustic_scene_batch[i].vad for i in range(len(acoustic_scene_batch))])
-				assert vad_batch is not None # Breaks if neither acoustic_scene_batch nor vad_batch was given
-				vad_output_th = vad_batch.mean(axis=2) > 2 / 3
-				vad_output_th = vad_output_th[:, np.newaxis, :, np.newaxis, np.newaxis]
-				vad_output_th = torch.from_numpy(vad_output_th.astype(float)).to(maps.device)
-				repeat_factor = np.array(maps.shape)
-				repeat_factor[:-2] = 1
-				maps *= vad_output_th.float().repeat(repeat_factor.tolist())
+			# if self.apply_vad:
+			# 	if acoustic_scene_batch is not None:
+			# 		vad_batch =  np.array([acoustic_scene_batch[i].vad for i in range(len(acoustic_scene_batch))])
+			# 	assert vad_batch is not None # Breaks if neither acoustic_scene_batch nor vad_batch was given
+			# 	vad_output_th = vad_batch.mean(axis=2) > 2 / 3
+			# 	vad_output_th = vad_output_th[:, np.newaxis, :, np.newaxis, np.newaxis]
+			# 	vad_output_th = torch.from_numpy(vad_output_th.astype(float)).to(maps.device)
+			# 	repeat_factor = np.array(maps.shape)
+			# 	repeat_factor[:-2] = 1
+			# 	maps *= vad_output_th.float().repeat(repeat_factor.tolist())
 
 			output += [ maps ]
 
 		if acoustic_scene_batch is not None:
-			DOAw_batch = torch.tensor([acoustic_scene_batch[i].DOAw.astype(np.float32) for i in range(len(acoustic_scene_batch))])
+			DOAw_batch = torch.tensor(np.array([acoustic_scene_batch[i].astype(np.float32) for i in range(len(acoustic_scene_batch))]))
 			if self.cuda_activated:
 				DOAw_batch = DOAw_batch.cuda()
 			output += [ DOAw_batch ]
@@ -466,7 +466,8 @@ class OneSourceTrackingSpectrogramLearner(OneSourceTrackingLearner):
 			if self.cuda_activated:
 				mic_sig_batch = mic_sig_batch.cuda()
 
-			mic_sig_fft = torch.rfft(mic_sig_batch, 1) # torch.Size([5, 1, 103, 12, 2049, 2])
+			# TODO: The trailing dimension of 2 is no more there
+			mic_sig_fft = torch.fft.rfft(mic_sig_batch, dim=-1) # torch.Size([5, 1, 103, 12, 2049, 2])
 			spect = at_modules.complex_cart2polar(mic_sig_fft)
 			spect[..., 0] /= spect[..., 0].max(dim=4, keepdim=True)[0]
 			spect[..., 1] /= np.pi
