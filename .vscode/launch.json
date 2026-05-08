@@ -87,21 +87,21 @@
             "name": "Create Dataset",
             "type": "debugpy",
             "request": "launch",
-            "program": "Analysis/ProcessMMAUD/create_dataset.py",
+            "program": "Training/Processing/MMAUD/create_dataset.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Export Waveforms",
             "type": "debugpy",
             "request": "launch",
-            "program": "Analysis/ProcessMMAUD/export_waveforms.py",
+            "program": "Training/Processing/MMAUD/export_waveforms.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Train TAME",
             "type": "debugpy",
             "request": "launch",
-            "program": "Analysis/TAME/train_stub.py",
+            "program": "Training/NN/TAME/train_stub.py",
             "args": [
                 "--audio_path", "outputs/audio", 
                 "--gt_position_path", "outputs/gt", 
@@ -114,15 +114,28 @@
             "name": "Cross3D",
             "type": "debugpy",
             "request": "launch",
-            "program": "Analysis/Cross3D/1sourceTracking_Cross3D.py",
+            "program": "Training/NN/Cross3D/1sourceTracking_Cross3D.py",
             "console": "integratedTerminal"
         },
         {
             "name": "Conformer",
             "type": "debugpy",
             "request": "launch",
-            "program": "Analysis/Conformer/run_sample.py",
+            "program": "Training/NN/Conformer/model.py",
             "console": "integratedTerminal",
+            "justMyCode": false
+        },
+
+        
+        {
+            "name": "Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model", "conformer"
+            ],
             "justMyCode": false
         },
     ]
