@@ -64,6 +64,7 @@ class Conformer(nn.Module):
             conv_dropout_p: float = 0.1,
             conv_kernel_size: int = 31,
             half_step_residual: bool = True,
+            in_channels: int = 1,
     ) -> None:
         super(Conformer, self).__init__()
         self.encoder = ConformerEncoder(
@@ -79,6 +80,7 @@ class Conformer(nn.Module):
             conv_dropout_p=conv_dropout_p,
             conv_kernel_size=conv_kernel_size,
             half_step_residual=half_step_residual,
+            in_channels=in_channels,
         )
         self.fc = Linear(encoder_dim, num_classes, bias=False)
 
@@ -104,5 +106,5 @@ class Conformer(nn.Module):
         """
         encoder_outputs, encoder_output_lengths = self.encoder(inputs, input_lengths)
         outputs = self.fc(encoder_outputs)
-        outputs = nn.functional.log_softmax(outputs, dim=-1)
-        return outputs, encoder_output_lengths
+        outputs = torch.tanh(outputs)
+        return outputs

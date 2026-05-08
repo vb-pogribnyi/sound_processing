@@ -122,7 +122,8 @@
             "type": "debugpy",
             "request": "launch",
             "program": "Analysis/Conformer/run_sample.py",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "justMyCode": false
         },
     ]
 }

@@ -174,7 +174,7 @@ class Conv2dSubampling(nn.Module):
         )
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
-        outputs = self.sequential(inputs.unsqueeze(1))
+        outputs = self.sequential(inputs)
         batch_size, channels, subsampled_lengths, sumsampled_dim = outputs.size()
 
         outputs = outputs.permute(0, 2, 1, 3)
