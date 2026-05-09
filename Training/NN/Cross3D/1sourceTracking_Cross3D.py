@@ -42,8 +42,8 @@ if extra_notes is not None and extra_notes != '':
 T = 20 # Trajectory length (s)
 # path_train = "outputs/train_split.txt"
 # path_test = "datasets/LibriSpeech/test-clean"
-corpusDataset_train = at_dataset.MMAUDDataset("outputs/train_split.txt", "outputs/gt", "outputs/audio")
-corpusDataset_test = at_dataset.MMAUDDataset("outputs/val_split.txt", "outputs/gt", "outputs/audio")
+corpusDataset_train = at_dataset.MMAUDDataset("data/mmaud/train_split.txt", "data/mmaud/gt", "data/mmaud/audio")
+corpusDataset_test = at_dataset.MMAUDDataset("data/mmaud/val_split.txt", "data/mmaud/gt", "data/mmaud/audio")
 
 windowing = at_dataset.Windowing(K, K*3//4, window=np.hanning)
 

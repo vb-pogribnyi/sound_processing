@@ -134,7 +134,10 @@
             "program": "Training/train.py",
             "console": "integratedTerminal",
             "args": [
-                "--model", "conformer"
+                "--model", "conformer",
+                "--train_data", "mmaud",
+                "--val_data", "mmaud",
+                "--preproc", "spec"
             ],
             "justMyCode": false
         },
