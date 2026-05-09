@@ -8,6 +8,10 @@ def load_model(model_name):
     if model_name == "conformer":
         from NN.Conformer.model import get_model as get_conformer
         return get_conformer()
+    elif model_name == "cross3d":
+        from NN.Cross3D.model import get_model as get_cross3d
+        return get_cross3d()
+    raise Exception(f"Unknown model {model_name}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -115,6 +115,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "Training/NN/Cross3D/1sourceTracking_Cross3D.py",
+            // "program": "Training/NN/Cross3D/model.py",
             "console": "integratedTerminal"
         },
         {
@@ -127,6 +128,20 @@
         },
 
         
+        // {
+        //     "name": "Train",
+        //     "type": "debugpy",
+        //     "request": "launch",
+        //     "program": "Training/train.py",
+        //     "console": "integratedTerminal",
+        //     "args": [
+        //         "--model", "conformer",
+        //         "--train_data", "mmaud",
+        //         "--val_data", "mmaud",
+        //         "--preproc", "spec"
+        //     ],
+        //     "justMyCode": false
+        // },
         {
             "name": "Train",
             "type": "debugpy",
@@ -134,10 +149,10 @@
             "program": "Training/train.py",
             "console": "integratedTerminal",
             "args": [
-                "--model", "conformer",
+                "--model", "cross3d",
                 "--train_data", "mmaud",
                 "--val_data", "mmaud",
-                "--preproc", "spec"
+                "--preproc", "srp"
             ],
             "justMyCode": false
         },

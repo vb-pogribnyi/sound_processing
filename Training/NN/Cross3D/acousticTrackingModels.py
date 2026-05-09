@@ -11,6 +11,9 @@
 import torch
 import torch.nn as nn
 
+import os
+import sys
+sys.path.append(os.path.dirname(__file__))
 import acousticTrackingModules as at_modules
 
 
@@ -80,7 +83,7 @@ class Cross3D(nn.Module):
 
 		self.out_conv1 = at_modules.CausConv1d(self.crThe_nb_outAct + self.crPhi_nb_outAct, out_nbh, out_conv_len, dilation=out_conv_dilation)
 		self.out_prelu = nn.PReLU()
-		self.out_conv2 = at_modules.CausConv1d(out_nbh, 3, out_conv_len, dilation=out_conv_dilation)
+		self.out_conv2 = at_modules.CausConv1d(out_nbh, 2, out_conv_len, dilation=out_conv_dilation)
 
 	def forward(self, x):
 		for i in range(self.in_deep):
