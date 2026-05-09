@@ -18,12 +18,12 @@ def concat_audio(audio_path, file_name):
     return audio_data
 
 
-def audio_to_spectrogram(audio, sr=48000, spectrogram_process_mode=1, min_frequency=10, max_frequency=3000):
+def audio_to_spectrogram(audio, sr=48000, spectrogram_process_mode=1, min_frequency=10, max_frequency=3000, hop_length=1024, n_mels=200, is_post_resize=True):
     mel_spectrogram = audio_trans.MelSpectrogram(
         sample_rate=sr,
         n_fft=2048,
-        hop_length=1024,
-        n_mels=200,
+        hop_length=hop_length,
+        n_mels=n_mels,
         pad_mode="constant",
         norm="slaney",
         mel_scale="slaney",
@@ -55,9 +55,10 @@ def audio_to_spectrogram(audio, sr=48000, spectrogram_process_mode=1, min_freque
         spectrogram = scale_processing(spectrogram)  # scale 0~1
     elif spectrogram_process_mode == 0:
         spectrogram = normalization_processing(spectrogram)  # (data-m)/s
-    transform = transforms.Resize((224, 16), antialias=True)
 
-    spectrogram = transform(spectrogram)
+    if is_post_resize:
+        transform = transforms.Resize((224, 16), antialias=True)
+        spectrogram = transform(spectrogram)
     return spectrogram  # [4 224 16]
 
 

@@ -1,5 +1,7 @@
 import torch
 import argparse
+import numpy as np
+from tqdm import tqdm
 from Data.loader import get_dataloader
 
 def load_model(model_name):
@@ -14,10 +16,24 @@ if __name__ == '__main__':
     parser.add_argument('--val_data', help="[mmaud, kwave, collected]")
     parser.add_argument('--preproc', help="[spec, srp]")
     args = parser.parse_args()
-    model = load_model(args.model)
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    model = load_model(args.model).to(device)
     train_dl = get_dataloader(args.train_data, preproc=args.preproc)
     # val_dl = get_dataloader(args.val_data, preproc=args.preproc)
-    print(model)
-    for audio, doa in train_dl:
-        print(audio.shape, doa.shape)
+    # print(model)
+    mse = torch.nn.MSELoss()
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    for epoch in range(100):
+        losses = []
+        for audio, doa in tqdm(train_dl):
+            opt.zero_grad()
+            preds = model(audio.to(device))
+            gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
+            # print(audio.shape, doa.shape, preds.shape)
+            loss = mse(preds, gt.float())
+            loss.backward()
+            opt.step()
+            losses.append(loss.item())
+        if epoch % 1 == 0:
+            print(epoch, np.mean(losses))
     print('done')

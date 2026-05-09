@@ -8,10 +8,11 @@ from conformer import Conformer
 import torchvision.models as models
 
 class ResNetConformer(torch.nn.Module):
-    def __init__(self, dim=256):
+    def __init__(self, in_ch=4, dim=256):
         super().__init__()
         resnet18 = models.resnet18(weights=None)
-        self.backbone = nn.Sequential(*list(resnet18.children())[:-2])
+        self.pre_bb = nn.Conv2d(in_ch, list(resnet18.children())[0].out_channels, (1, 1))
+        self.backbone = nn.Sequential(*list(resnet18.children())[1:-2])
         self.conformer = Conformer(num_classes=2, 
                     input_dim=dim//32, 
                     encoder_dim=4,
@@ -20,8 +21,10 @@ class ResNetConformer(torch.nn.Module):
                     in_channels=512)    # ResNet outputs 512 channels
 
     def forward(self, x):
-        features = self.backbone(x.unsqueeze(1).repeat(1, 3, 1, 1))
-        outputs = self.conformer(features, input_lengths)
+        bb_input = self.pre_bb(x)
+        features = self.backbone(bb_input)
+        input_lengths = [features.shape[-2] for _ in range(features.shape[0])]
+        outputs = self.conformer(features, torch.tensor(input_lengths))
 
         return outputs
 
@@ -42,6 +45,6 @@ if __name__ == '__main__':
     # num_classes is number of outputs - 2 angles in our case.
     model = get_model().to(device)
     # Forward propagate
-    outputs = model(inputs)
+    outputs = model(inputs.unsqueeze(1).repeat(1, 4, 1, 1))
 
     print(outputs.shape)

@@ -4,6 +4,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
 # from NN.Cross3D import data_processor
+from NN.TAME.dataloader.data_process import audio_to_spectrogram
 
 # Stolen from Cross3D
 def cart2sph(cart):
@@ -16,7 +17,7 @@ def cart2sph(cart):
 
 class TransformSpectrogram:
     def __call__(self, x):
-        return x
+        return audio_to_spectrogram(x.T, hop_length=32, n_mels=256, is_post_resize=False)
 
 class MMAUDDataset(Dataset):
     def __init__(self, annotation_path, gt_postion_path, audio_path, transforms, mode="train"):
