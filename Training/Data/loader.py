@@ -1,11 +1,14 @@
 import os
 import torch
+import json
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
 # from NN.Cross3D import data_processor
 from NN.TAME.dataloader.data_process import audio_to_spectrogram
 from NN.Cross3D import acousticTrackingModules as at_modules
+
+DEBUG = True
 
 # Stolen from Cross3D
 def cart2sph(cart):
@@ -62,6 +65,9 @@ class TransformSRP:
 
         # DOAw_batch = torch.tensor(np.array([acoustic_scene_batch[i].astype(np.float32) for i in range(len(acoustic_scene_batch))]))
         # output += [ DOAw_batch ]
+        if DEBUG:
+            import matplotlib.pyplot as plt
+            plt.imshow(maps[0][0, 0])
         return maps[0]# , DOAw_batch
 
         # return output[0] if len(output)==1 else output
@@ -110,6 +116,12 @@ def get_dataloader(dataset_name, preproc=""):
         annotation_path = "data/mmaud/train_split.txt"
         gt_path = "data/mmaud/gt"
         audio_path = "data/mmaud/audio"
+        mics_path = "data/mmaud/mics.json"
+    elif dataset_name == "kwave":
+        annotation_path = "data/kwave/train_split.txt"
+        gt_path = "data/kwave/gt"
+        audio_path = "data/kwave/audio"
+        mics_path = "data/kwave/mics.json"
     else:
         raise Exception(f"Dataloader: unknown dataset {dataset_name}")
     transforms = []
@@ -119,10 +131,12 @@ def get_dataloader(dataset_name, preproc=""):
         N = 4       # Number of microphones
         K = 4096    # Number of signal samples
         fs = 48000  # Sample rate
-        mic_pos = np.array((( 0.96, 0.00, 0.00),
-                            ( 0.00, 0.96, 0.00),
-                            (-0.96, 0.00, 0.00),
-                            ( 0.00,-0.96, 0.00)))
+        # # TODO: Read microphones positions from dataset as well
+        # mic_pos = np.array((( 0.96, 0.00, 0.00),
+        #                     ( 0.00, 0.96, 0.00),
+        #                     (-0.96, 0.00, 0.00),
+        #                     ( 0.00,-0.96, 0.00)))
+        mic_pos = np.array(json.load(open(mics_path)))
         transforms.append(TransformSRP(N, K, mic_pos, fs, cat_maxCoor=True))
     dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms)
     return DataLoader(dataset, batch_size=6)

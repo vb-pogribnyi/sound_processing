@@ -1,0 +1,3 @@
+When exporting dataset - add microphones coordinates as well
+Fix paths for MMAUD dataset, make it export into data/mmaud
+Add microphones configuration json for the MMAUD

@@ -84,10 +84,17 @@
 
 
         {
-            "name": "Create Dataset",
+            "name": "Create Dataset - MMAUD",
             "type": "debugpy",
             "request": "launch",
             "program": "Training/Processing/MMAUD/create_dataset.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Create Dataset - KWave",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/Processing/KWave/create_dataset.py",
             "console": "integratedTerminal"
         },
         {
@@ -150,7 +157,8 @@
             "console": "integratedTerminal",
             "args": [
                 "--model", "cross3d",
-                "--train_data", "mmaud",
+                // "--train_data", "mmaud",
+                "--train_data", "kwave",
                 "--val_data", "mmaud",
                 "--preproc", "srp"
             ],
