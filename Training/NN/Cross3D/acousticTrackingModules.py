@@ -123,7 +123,8 @@ class SRP_map(nn.Module):
 		self.cross_idx = np.stack([np.kron(np.arange(N, dtype='int16'), np.ones((N), dtype='int16')), 
 							 np.kron(np.ones((N), dtype='int16'), np.arange(N, dtype='int16'))])
 		
-		self.theta = np.linspace(0, thetaMax, resTheta)
+		# self.theta = np.linspace(0, thetaMax, resTheta)
+		self.theta = np.linspace(-np.pi, np.pi, resTheta)  # The array is flat on the ground looking upwards.
 		self.phi = np.linspace(-np.pi, np.pi, resPhi+1)
 		self.phi = self.phi[0:-1]
 		
@@ -139,6 +140,7 @@ class SRP_map(nn.Module):
 			for l in range(self.N):
 				for i in range(resTheta):
 					for j in range(resPhi):
+						# A discrete shift to represent sound coming from angle (i, j)
 						self.tau0[i,j,k,l] = int( np.argmin( np.abs( self.IMTDF[i,j,k,l]-tau )) )
 		self.tau0[self.tau0>K//2] -= K
 		self.tau0 = self.tau0.transpose([2, 3, 0, 1])

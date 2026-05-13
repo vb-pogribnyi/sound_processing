@@ -40,6 +40,7 @@ class TransformSRP:
         dist_max = np.max([np.max([np.linalg.norm(rn[n, :] - rn[m, :]) for m in range(N)]) for n in range(N)])
         tau_max = int(np.ceil(dist_max / c * fs))
         self.gcc = at_modules.GCC(N, K, tau_max=tau_max, transform='PHAT')
+        # self.gcc = at_modules.GCC(N, K, tau_max=tau_max, transform=None)
         self.srp = at_modules.SRP_map(N, K, res_the, res_phi, rn, fs,
                                       thetaMax=np.pi / 2 if arrayType == 'planar' else np.pi)
 
@@ -65,9 +66,6 @@ class TransformSRP:
 
         # DOAw_batch = torch.tensor(np.array([acoustic_scene_batch[i].astype(np.float32) for i in range(len(acoustic_scene_batch))]))
         # output += [ DOAw_batch ]
-        if DEBUG:
-            import matplotlib.pyplot as plt
-            plt.imshow(maps[0][0, 0])
         return maps[0]# , DOAw_batch
 
         # return output[0] if len(output)==1 else output
@@ -96,18 +94,33 @@ class MMAUDDataset(Dataset):
         return audio_data
 
     def __getitem__(self, index):
+        global DEBUG
         file_name = self.annotation_lines[index][:-1]
 
         # gt_cls_path = os.path.join(self.gt_cls_path, file_name)
         gt_position_path = os.path.join(self.gt_postion_path, file_name)
 
-        # load audio data
-        audio = self.concat_audio(self.audio_path, file_name).T  # mean=0 std=1  [15500 4]
-        for transform in self.transforms:
-            audio = transform(audio)
         # # load gt position data
         gt_position = np.array(np.load(gt_position_path))
-        doa = cart2sph(np.array([gt_position]))
+        if gt_position.shape[-1] == 3:      # If GT is given in Cartesian coordinates
+            doa = cart2sph(np.array([gt_position]))
+        elif gt_position.shape[-1] == 2:
+            doa = [gt_position]
+        if abs(doa[0][0] + 2.14) > 0.3 and abs(doa[0][0] + 0.33) > 0.3:
+            DEBUG = True
+        # load audio data
+        audio = self.concat_audio(self.audio_path, file_name).T  # mean=0 std=1  [15500 4]
+        if DEBUG:
+            import matplotlib.pyplot as plt
+            plt.subplot(2, 1, 1)
+            plt.title(doa)
+            [plt.plot(s) for s in audio.T]
+        for transform in self.transforms:
+            audio = transform(audio)
+        if DEBUG:
+            plt.subplot(2, 1, 2)
+            plt.imshow(audio[0, 0])
+            plt.show()
 
         return audio, doa[0]
 
@@ -128,15 +141,10 @@ def get_dataloader(dataset_name, preproc=""):
     if preproc == "spec":
         transforms.append(TransformSpectrogram())
     if preproc == "srp":
-        N = 4       # Number of microphones
-        K = 4096    # Number of signal samples
-        fs = 48000  # Sample rate
-        # # TODO: Read microphones positions from dataset as well
-        # mic_pos = np.array((( 0.96, 0.00, 0.00),
-        #                     ( 0.00, 0.96, 0.00),
-        #                     (-0.96, 0.00, 0.00),
-        #                     ( 0.00,-0.96, 0.00)))
         mic_pos = np.array(json.load(open(mics_path)))
+        N = mic_pos.shape[0]       # Number of microphones
+        K = 350    # Number of signal samples
+        fs = 44000  # Sample rate
         transforms.append(TransformSRP(N, K, mic_pos, fs, cat_maxCoor=True))
     dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms)
     return DataLoader(dataset, batch_size=6)

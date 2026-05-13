@@ -1,0 +1,5 @@
+## MMAUD dataset formatting scripts
+The scripts in this folder extract audio and ground truth data from the rosbags and transform into WAWs synchronized with the ground truth timing. The process undergoes multiple phases:
+1. Read rosbags. The rosbags are large files, most of their size is taken by images. It makes sense to extract the audio first. The audio data is encoded into mp3 format. The script ```read_bag_signal.py``` exports the audio data into a pickle file. Another script ```read_bag_gt.py``` does the same with the ground truth, for convenience.
+2. Extract waveforms. The data needs to be decoded from the mp3 prior to processing. The script ```export_waveforms.py``` decodes the files in a way that preserves the timestamps from the original rosbag file.
+3. The audio data and ground truth are not synchronized. The final script ```create_dataset.py``` synchronizes the signals and formats them into chunks that will be loaded by training script. 
