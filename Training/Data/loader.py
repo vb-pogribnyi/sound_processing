@@ -8,8 +8,6 @@ from torch.utils.data import Dataset, DataLoader
 from NN.TAME.dataloader.data_process import audio_to_spectrogram
 from NN.Cross3D import acousticTrackingModules as at_modules
 
-DEBUG = True
-
 # Stolen from Cross3D
 def cart2sph(cart):
     xy2 = cart[:,0]**2 + cart[:,1]**2
@@ -74,7 +72,7 @@ class TransformSRP:
 
 
 class MMAUDDataset(Dataset):
-    def __init__(self, annotation_path, gt_postion_path, audio_path, transforms, mode="train"):
+    def __init__(self, annotation_path, gt_postion_path, audio_path, transforms, mode="train", debug_path=None):
         super(MMAUDDataset, self).__init__()
         if mode == "train":
             with open(annotation_path, "r") as f:
@@ -85,16 +83,30 @@ class MMAUDDataset(Dataset):
         self.gt_postion_path = gt_postion_path
         self.audio_path = audio_path
         self.transforms = transforms
+        os.makedirs(debug_path, exist_ok=True)
+        self.debug_path = debug_path
+        self.debug_idx = 0
 
     def __len__(self):
         return len(self.annotation_lines)
     
     def concat_audio(self, audio_path, file_name):
         audio_data = np.load(os.path.join(audio_path, file_name))  # current time data [3100 4]
+        # # Filter the signal from 50 to 20000 hz
+        # fs = 48000
+        # lowcut = 1000
+        # highcut = 20000
+        # order = 2
+        # nyquist = 0.5 * fs
+        # low = lowcut / nyquist
+        # high = highcut / nyquist
+        # b, a  = butter(order, [low, high], btype="band")
+        # # for signal in audio_data:
+        # #     signal = filtfilt(b, a, signal)
+        # return np.array([filtfilt(b, a, signal) for signal in audio_data])
         return audio_data
 
     def __getitem__(self, index):
-        global DEBUG
         file_name = self.annotation_lines[index][:-1]
 
         # gt_cls_path = os.path.join(self.gt_cls_path, file_name)
@@ -106,25 +118,28 @@ class MMAUDDataset(Dataset):
             doa = cart2sph(np.array([gt_position]))
         elif gt_position.shape[-1] == 2:
             doa = [gt_position]
-        if abs(doa[0][0] + 2.14) > 0.3 and abs(doa[0][0] + 0.33) > 0.3:
-            DEBUG = True
         # load audio data
         audio = self.concat_audio(self.audio_path, file_name).T  # mean=0 std=1  [15500 4]
-        if DEBUG:
+        if self.debug_path is not None:
             import matplotlib.pyplot as plt
-            plt.subplot(2, 1, 1)
-            plt.title(doa)
-            [plt.plot(s) for s in audio.T]
+            # plt.subplot(2, 1, 1)
+            plt.title((doa / np.pi * 64).astype(int))
+            # [plt.plot(s) for s in audio.T]
         for transform in self.transforms:
             audio = transform(audio)
-        if DEBUG:
-            plt.subplot(2, 1, 2)
+        if self.debug_path is not None:
+            # plt.subplot(2, 1, 2)
             plt.imshow(audio[0, 0])
-            plt.show()
+            
+            plt.savefig(os.path.join(self.debug_path, f"{str(self.debug_idx).zfill(3)}.png"))
+            self.debug_idx += 1
+            plt.close()
 
         return audio, doa[0]
 
-def get_dataloader(dataset_name, preproc=""):
+
+
+def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None):
     if dataset_name == "mmaud":
         annotation_path = "data/mmaud/train_split.txt"
         gt_path = "data/mmaud/gt"
@@ -141,10 +156,11 @@ def get_dataloader(dataset_name, preproc=""):
     if preproc == "spec":
         transforms.append(TransformSpectrogram())
     if preproc == "srp":
-        mic_pos = np.array(json.load(open(mics_path)))
+        if mic_pos is None:
+            mic_pos = np.array(json.load(open(mics_path)))
         N = mic_pos.shape[0]       # Number of microphones
-        K = 350    # Number of signal samples
-        fs = 44000  # Sample rate
+        K = 4096    # Number of signal samples
+        fs = 48000  # Sample rate
         transforms.append(TransformSRP(N, K, mic_pos, fs, cat_maxCoor=True))
-    dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms)
+    dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms, debug_path=f'dbg/mmaud_preproc/{do_permutation(permutation, mic_pos.shape[0])}')
     return DataLoader(dataset, batch_size=6)

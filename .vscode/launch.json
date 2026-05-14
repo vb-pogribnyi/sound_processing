@@ -157,11 +157,20 @@
             "console": "integratedTerminal",
             "args": [
                 "--model", "cross3d",
-                // "--train_data", "mmaud",
-                "--train_data", "kwave",
+                "--train_data", "mmaud",
+                // "--train_data", "kwave",
                 "--val_data", "mmaud",
                 "--preproc", "srp"
             ],
+            "justMyCode": false
+        },
+        {
+            "name": "Dump Dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/dump_dataset.py",
+            "console": "integratedTerminal",
+            "args": [],
             "justMyCode": false
         },
     ]
