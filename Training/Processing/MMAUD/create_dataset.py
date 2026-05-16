@@ -74,3 +74,7 @@ def process_file(audio_file):
 
 if __name__ == '__main__':
     process_file('Mavic3_decoded.pkl')
+    process_file('Mavic2_decoded.pkl')
+    process_file('Pham4_decoded.pkl')
+    process_file('Avata_decoded.pkl')
+    process_file('M300_decoded.pkl')

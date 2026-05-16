@@ -74,3 +74,7 @@ def process_file(audio_file, gt_file):
 
 if __name__ == '__main__':
     process_file('Mavic3.pkl', '2023-08-24-11-14-40_mavic3_gt.pkl')
+    process_file("Mavic2.pkl", "2023-08-24-10-49-05_mavic2_gt.pkl")
+    process_file("Pham4.pkl", "2023-08-24-11-30-56_phantom4_gt.pkl")
+    process_file("Avata.pkl", "2023-08-24-11-47-30_avata_gt.pkl")
+    process_file("M300.pkl", "2023-08-24-11-59-34_m300_gt.pkl")

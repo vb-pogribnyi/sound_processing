@@ -8,7 +8,7 @@ import torch
 
 from dataloader.dataset import AudioDataset
 from torch.utils.data import DataLoader
-# from model.model import TFMamba
+from model.model import TFMamba
 from torch import optim
 from tqdm import tqdm
 import numpy as np
@@ -23,7 +23,7 @@ def main():
     parser.add_argument("--gt_cls_path", type=str, default="/media/xiao/HIKSEMI/datasets/MMAUD/Data-M/label/", help="the gt type of uav")
     parser.add_argument("--gt_position_path", type=str, default="/media/xiao/HIKSEMI/datasets/MMAUD/Data-M/gt/", help="the gt 3d position of uav")
 
-    parser.add_argument("--save_path", type=str, default="output/", help="the path to save model")
+    parser.add_argument("--save_path", type=str, default="/app/output/", help="the path to save model")
 
     parser.add_argument("--train_split_path", type=str, default="/media/xiao/HIKSEMI/datasets/MMAUD/Data-M/annotation/annotation_train_all/trainval.txt",
                         help="the file of train, format: cls/file_name.npy, eg:0/111.npy")
@@ -42,17 +42,17 @@ def main():
     test_dataset = AudioDataset(args.val_split_path, args.gt_cls_path, args.gt_position_path, args.audio_path)
     train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True, num_workers=args.workers, drop_last=True)
     test_loader = DataLoader(test_dataset, args.batch_size, shuffle=False, num_workers=args.workers, drop_last=True)
+    device = torch.device(args.gpu if torch.cuda.is_available() else "cpu")
 
     # Dummy run through dataloader
-    for data in tqdm(train_loader, total=len(train_loader), unit="batch"):
-        spectrogram, cls_gt, pos_gt = [d.to(device) for d in data]
+    # for data in tqdm(train_loader, total=len(train_loader), unit="batch"):
+    #     spectrogram, cls_gt, pos_gt = [d.to(device) for d in data]
 
     # set model
     model = TFMamba(num_cls=5, mode="train")
     # model = TFMamba(num_cls=5, mode="test")
     if args.resume:
         model.load_state_dict(torch.load(args.resume))
-    device = torch.device(args.gpu if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     print(device)
 
@@ -75,6 +75,8 @@ def main():
 
         if valid_loss < best_val_loss:
             best_val_loss = valid_loss
+            if not os.path.exists(args.save_path):
+                os.makedirs(args.save_path, exist_ok=True)
             torch.save(model.state_dict(), os.path.join(args.save_path, "best_model_{}_{}.pth".format(str(epoch + 1), str(valid_loss))))
 
         torch.save(model.state_dict(), os.path.join(args.save_path, "epoch{}_val_loss_{}.pth".format(str(epoch + 1), str(valid_loss))))
@@ -90,8 +92,8 @@ def train_mode(model, train_loader, optimizer, pos_loss, cls_loss, device):
 
         loss_cls = cls_loss(cls_pred, cls_gt)
         loss_pos = pos_loss(pos_pred, pos_gt)
-        print("loss cls:", loss_cls)
-        print("loss pos:", loss_pos)
+        # print("loss cls:", loss_cls)
+        # print("loss pos:", loss_pos)
         total_loss = loss_cls + 2*loss_pos
         total_loss.backward()
         optimizer.step()

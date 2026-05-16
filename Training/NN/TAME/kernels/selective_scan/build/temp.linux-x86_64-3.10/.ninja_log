@@ -1,4 +1,4 @@
 # ninja log v5
-2	21314	1720788666109551402	/home/xiao/project/Anti-UAV-AMamba/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_oflex.o	7c661c606c7027ab
-1	24438	1720788669201291616	/home/xiao/project/Anti-UAV-AMamba/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_core_fwd.o	213137ff9ce9880f
-1	83999	1720788728748447619	/home/xiao/project/Anti-UAV-AMamba/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_core_bwd.o	cbdcf8c52a7550b6
+0	18390	1778908309919180816	/app/Training/NN/TAME/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_core_fwd.o	55b0b21ac0671de
+1	26304	1778908317835110127	/app/Training/NN/TAME/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_oflex.o	bfb5b735034046f2
+0	46545	1778908338070929411	/app/Training/NN/TAME/kernels/selective_scan/build/temp.linux-x86_64-3.10/csrc/selective_scan/cusoflex/selective_scan_core_bwd.o	9517ffdf6572e14b

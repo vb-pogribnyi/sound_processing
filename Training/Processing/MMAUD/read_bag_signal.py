@@ -30,4 +30,8 @@ def export_rosbag(bag_path, bag_name):
     pickle.dump(result, open(bag_name.name[:-4] + '.pkl', 'wb'))
 
 if __name__ == '__main__':
-    export_rosbag(Path("D:\\MMAUD"), Path("Mavic3.bag"))
+    export_rosbag(Path("/experiments"), Path("Mavic3.bag"))
+    export_rosbag(Path("/experiments"), Path("Mavic2.bag"))
+    export_rosbag(Path("/experiments"), Path("M300.bag"))
+    export_rosbag(Path("/experiments"), Path("Pham4.bag"))
+    export_rosbag(Path("/experiments"), Path("Avata.bag"))

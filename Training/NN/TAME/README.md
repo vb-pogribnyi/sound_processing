@@ -4,8 +4,8 @@ This is the repository for "[TAME: Temporal Audio-based Mamba for Enhanced Drone
 # Installation
 ```bash
 $ conda create -n your_env_name python=3.10.13
-$ pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118
-$ pip install -r requirement.txt
+$ pip install torch==2.1.1+cu121 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu121
+$ pip install -r requirements.txt
 $ pip install causal_conv1d==1.1.0
 $ cd kernels/selective_scan
 $ pip install .

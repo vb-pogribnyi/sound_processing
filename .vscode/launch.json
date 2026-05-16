@@ -110,11 +110,11 @@
             "request": "launch",
             "program": "Training/NN/TAME/train_stub.py",
             "args": [
-                "--audio_path", "outputs/audio", 
-                "--gt_position_path", "outputs/gt", 
-                "--gt_cls_path", "outputs/cls", 
-                "--train_split_path", "outputs/train_split.txt", 
-                "--val_split_path", "outputs/val_split.txt"],
+                "--audio_path", "/app/data/mmaud/audio", 
+                "--gt_position_path", "/app/data/mmaud/gt", 
+                "--gt_cls_path", "/app/data/mmaud/cls", 
+                "--train_split_path", "/app/data/mmaud/train_split.txt", 
+                "--val_split_path", "/app/data/mmaud/val_split.txt"],
             "console": "integratedTerminal"
         },
         {

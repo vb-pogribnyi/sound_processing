@@ -29,7 +29,7 @@ from multiprocessing import Process, Queue
 from multiprocessing.shared_memory import SharedMemory
 
 
-Nt = 512
+Nt = 1024*8
 def worker_gif(task_queue, logger):
     while True:
         dirnames = set()
