@@ -82,61 +82,96 @@
 
 
 
+
+        {
+            "name": "Create Dataset - MMAUD",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/Processing/MMAUD/create_dataset.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Create Dataset - KWave",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/Processing/KWave/create_dataset.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Export Waveforms",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/Processing/MMAUD/export_waveforms.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train TAME",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/NN/TAME/train_stub.py",
+            "args": [
+                "--audio_path", "outputs/audio", 
+                "--gt_position_path", "outputs/gt", 
+                "--gt_cls_path", "outputs/cls", 
+                "--train_split_path", "outputs/train_split.txt", 
+                "--val_split_path", "outputs/val_split.txt"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Cross3D",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/NN/Cross3D/1sourceTracking_Cross3D.py",
+            // "program": "Training/NN/Cross3D/model.py",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Conformer",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/NN/Conformer/model.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+
+        
         // {
-        //     "name": "KWave he",
-        //     "type": "cppdbg",
+        //     "name": "Train",
+        //     "type": "debugpy",
         //     "request": "launch",
-        //     "program": "/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA",
+        //     "program": "Training/train.py",
+        //     "console": "integratedTerminal",
         //     "args": [
-        //         "-i", "/app/processing/input_heterogenous.h5", "-o", "/app/processing/output.h5", 
-        //         "-t", "12", "--checkpoint_timesteps", "648", "--checkpoint_file", "/app/processing/ckpt.h5", 
-        //         "--p_raw", "-s", "1", "--s_period", "62"
+        //         "--model", "conformer",
+        //         "--train_data", "mmaud",
+        //         "--val_data", "mmaud",
+        //         "--preproc", "spec"
         //     ],
-        //     "stopAtEntry": false,
-        //     "cwd": "/app",
-        //     "environment": [],
-        //     "externalConsole": false,
-        //     "MIMode": "gdb",
-        //     "setupCommands": [
-        //         {
-        //             "description": "Enable pretty-printing for gdb",
-        //             "text": "-enable-pretty-printing",
-        //             "ignoreFailures": true
-        //         },
-        //         {
-        //             "description": "Set Disassembly Flavor to Intel",
-        //             "text": "-gdb-set disassembly-flavor intel",
-        //             "ignoreFailures": true
-        //         }
-        //     ]
+        //     "justMyCode": false
         // },
-        // {
-        //     "name": "KWave ho",
-        //     "type": "cppdbg",
-        //     "request": "launch",
-        //     "program": "/app/k-Wave-CPUGPU-src/kspaceFirstOrder-CUDA/kspaceFirstOrder-CUDA",
-        //     "args": [
-        //         "-i", "/app/processing/input_homogenous.h5", "-o", "/app/processing/output.h5", 
-        //         "-t", "12", "--checkpoint_timesteps", "648", "--checkpoint_file", "/app/processing/ckpt.h5", 
-        //         "--p_raw", "-s", "1", "--s_period", "62"
-        //     ],
-        //     "stopAtEntry": false,
-        //     "cwd": "/app",
-        //     "environment": [],
-        //     "externalConsole": false,
-        //     "MIMode": "gdb",
-        //     "setupCommands": [
-        //         {
-        //             "description": "Enable pretty-printing for gdb",
-        //             "text": "-enable-pretty-printing",
-        //             "ignoreFailures": true
-        //         },
-        //         {
-        //             "description": "Set Disassembly Flavor to Intel",
-        //             "text": "-gdb-set disassembly-flavor intel",
-        //             "ignoreFailures": true
-        //         }
-        //     ]
-        // }
+        {
+            "name": "Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model", "cross3d",
+                "--train_data", "mmaud",
+                // "--train_data", "kwave",
+                "--val_data", "mmaud",
+                "--preproc", "srp"
+            ],
+            "justMyCode": false
+        },
+        {
+            "name": "Dump Dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/dump_dataset.py",
+            "console": "integratedTerminal",
+            "args": [],
+            "justMyCode": false
+        },
     ]
 }

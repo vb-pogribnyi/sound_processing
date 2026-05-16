@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Kim
+    given-names: Soohwan
+title: "Conformer: Convolution-augmented Transformer for Speech Recognition"
+version: 1.0.0
+doi: 10.5281/zenodo.18154427
+date-released: 2025-01-05
+url: "https://github.com/sooftware/conformer"
