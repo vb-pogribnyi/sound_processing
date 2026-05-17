@@ -18,8 +18,11 @@ def cart2sph(cart):
     return sph[:,1:3] # Omit R
 
 class TransformSpectrogram:
+    def __init__(self, is_post_resize) -> None:
+        self.is_post_resize = is_post_resize
+
     def __call__(self, x):
-        return audio_to_spectrogram(x.T, hop_length=32, n_mels=256, is_post_resize=False)
+        return audio_to_spectrogram(x.T, hop_length=32, n_mels=256, is_post_resize=self.is_post_resize)
 
 
 class TransformSRP:
@@ -83,7 +86,8 @@ class MMAUDDataset(Dataset):
         self.gt_postion_path = gt_postion_path
         self.audio_path = audio_path
         self.transforms = transforms
-        os.makedirs(debug_path, exist_ok=True)
+        if debug_path is not None:
+            os.makedirs(debug_path, exist_ok=True)
         self.debug_path = debug_path
         self.debug_idx = 0
 
@@ -139,28 +143,29 @@ class MMAUDDataset(Dataset):
 
 
 
-def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None):
+def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode='train'):
     if dataset_name == "mmaud":
-        annotation_path = "data/mmaud/train_split.txt"
+        annotation_path = "data/mmaud/train_split.txt" if mode == 'train' else "data/mmaud/val_split.txt"
         gt_path = "data/mmaud/gt"
         audio_path = "data/mmaud/audio"
         mics_path = "data/mmaud/mics.json"
+        fs = 48000  # Sample rate
     elif dataset_name == "kwave":
-        annotation_path = "data/kwave/train_split.txt"
+        annotation_path = "data/kwave/train_split.txt" if mode == 'train' else "data/kwave/val_split.txt"
         gt_path = "data/kwave/gt"
         audio_path = "data/kwave/audio"
         mics_path = "data/kwave/mics.json"
+        fs = 44000  # Sample rate
     else:
         raise Exception(f"Dataloader: unknown dataset {dataset_name}")
     transforms = []
     if preproc == "spec":
-        transforms.append(TransformSpectrogram())
+        transforms.append(TransformSpectrogram(is_post_resize=True))
     if preproc == "srp":
         if mic_pos is None:
             mic_pos = np.array(json.load(open(mics_path)))
         N = mic_pos.shape[0]       # Number of microphones
         K = 4096    # Number of signal samples
-        fs = 48000  # Sample rate
         transforms.append(TransformSRP(N, K, mic_pos, fs, cat_maxCoor=True))
-    dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms, debug_path=f'dbg/mmaud_preproc/{do_permutation(permutation, mic_pos.shape[0])}')
+    dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms)
     return DataLoader(dataset, batch_size=6)

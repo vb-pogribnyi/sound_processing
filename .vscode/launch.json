@@ -118,6 +118,19 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Eval TAME",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/NN/TAME/evaluate.py",
+            "args": [
+                "--audio_path", "/app/data/mmaud/audio", 
+                "--gt_position_path", "/app/data/mmaud/gt", 
+                "--gt_cls_path", "/app/data/mmaud/cls", 
+                "--val_split_path", "/app/data/mmaud/val_split.txt", 
+                "--resume", "/app/output/best_model_160_1.7401754678185306.pth"],
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Cross3D",
             "type": "debugpy",
             "request": "launch",
@@ -156,11 +169,14 @@
             "program": "Training/train.py",
             "console": "integratedTerminal",
             "args": [
-                "--model", "cross3d",
+                "--model", "aumamba",
+                // "--model", "conformer",
+                // "--model", "cross3d",
                 "--train_data", "mmaud",
                 // "--train_data", "kwave",
                 "--val_data", "mmaud",
-                "--preproc", "srp"
+                // "--preproc", "srp"
+                "--preproc", "spec"
             ],
             "justMyCode": false
         },

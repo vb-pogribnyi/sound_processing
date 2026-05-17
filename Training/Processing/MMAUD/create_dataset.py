@@ -16,12 +16,13 @@ import matplotlib.pyplot as plt
 # y_new = f(x_new)
 
 AUDIO_WINDOW = 4096
-AUDIO_HOP = 2048
+AUDIO_HOP = 4096
 IS_DEBUG = False
-out_idx = 0;
+# out_idx = 0;
+result_dir = "data/mmaud"
 
-def process_file(audio_file):
-    global out_idx
+def process_file(audio_file, start_idx=0):
+    out_idx = start_idx
     audio_data = pickle.load(open(audio_file, 'rb'))
 
     for t in audio_data['waveforms']:
@@ -30,7 +31,6 @@ def process_file(audio_file):
     assert len(np.unique([len(audio_data['waveforms'][t]) for t in audio_data['waveforms']])) == 1
     time_start = int(min(audio_data['timestamps']['/audio1/audio']))
 
-    result_dir = "data/mmaud"
     result_audio_dir = os.path.join(result_dir, "audio", "0")
     result_gt_dir = os.path.join(result_dir, "gt", "0")
     result_cls_dir = os.path.join(result_dir, "cls", "0")
@@ -65,16 +65,19 @@ def process_file(audio_file):
                 plt.title(f"Time: {time_minutes}:{time_seconds}")
                 [plt.plot(audio_item) for audio_item in audio]
                 plt.show()
-    with open(os.path.join(result_dir, "train_split.txt"), 'w') as f:
-        for idx in range(int(out_idx * 0.7)):
-            f.write(f"0/{str(idx).zfill(5)}.npy\n")
-    with open(os.path.join(result_dir, "val_split.txt"), 'w') as f:
-        for idx in range(int(out_idx * 0.7), out_idx):
-            f.write(f"0/{str(idx).zfill(5)}.npy\n")
+    return out_idx
 
 if __name__ == '__main__':
-    process_file('Mavic3_decoded.pkl')
-    process_file('Mavic2_decoded.pkl')
-    process_file('Pham4_decoded.pkl')
-    process_file('Avata_decoded.pkl')
-    process_file('M300_decoded.pkl')
+    out_idx = process_file('Mavic3_decoded.pkl', 0)
+    out_idx = process_file('Mavic2_decoded.pkl', out_idx)
+    out_idx = process_file('Pham4_decoded.pkl', out_idx)
+    out_idx = process_file('Avata_decoded.pkl', out_idx)
+    out_idx = process_file('M300_decoded.pkl', out_idx)
+    indexes = list(range(out_idx))
+    np.random.shuffle(indexes)
+    with open(os.path.join(result_dir, "train_split.txt"), 'w') as f:
+        for idx in range(int(out_idx * 0.7)):
+            f.write(f"0/{str(indexes[idx]).zfill(5)}.npy\n")
+    with open(os.path.join(result_dir, "val_split.txt"), 'w') as f:
+        for idx in range(int(out_idx * 0.7), out_idx):
+            f.write(f"0/{str(indexes[idx]).zfill(5)}.npy\n")

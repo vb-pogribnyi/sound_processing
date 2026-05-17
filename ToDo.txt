@@ -1,8 +1,20 @@
-When exporting dataset - add microphones coordinates as well
-Fix paths for MMAUD dataset, make it export into data/mmaud
++ When exporting dataset - add microphones coordinates as well
++ Fix paths for MMAUD dataset, make it export into data/mmaud
 Add microphones configuration json for the MMAUD
 Export sample rate and signal length
++ Set time start/end to exprt in mmaud
++ Set up sensor rotations 
++ Save SRP images for each rotations
++ Integrate TAME into the universal train pipeline
+For MMAUD testing - add option to test all microphones rotations
+Add option to test the captured recordings
+Add visualization of the final prediction
+Make visualization of the inputs (srp & spec) more systematic
+Add description for exporting the MMAUD dataset
+Add root folder description (that points to the dataset exporter thing)
++ Implement validation routine in the train pipeline
++ Save trained models
 
-Set time start/end to exprt in mmaud
-Set up sensor rotations 
-Save SRP images for each rotations
+Fix the 0.02m grid source
+Make Cross3D work with both spectrogram & srp
+Integrate mlflow into the training
