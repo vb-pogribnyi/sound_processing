@@ -67,7 +67,7 @@ class TransformSRP:
 
         # DOAw_batch = torch.tensor(np.array([acoustic_scene_batch[i].astype(np.float32) for i in range(len(acoustic_scene_batch))]))
         # output += [ DOAw_batch ]
-        return maps[0]# , DOAw_batch
+        return maps[0, :, 0]# , DOAw_batch
 
         # return output[0] if len(output)==1 else output
 

@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 
 class TFMamba(nn.Module):
-    def __init__(self, num_cls, mode="train", t_f_tocken=True, abs_pos_embed=True, depth=12, cnn_region_feature=True):
+    def __init__(self, num_cls, mode="train", t_f_tocken=True, abs_pos_embed=True, depth=12, cnn_region_feature=True, ch_in=4):
         super(TFMamba, self).__init__()
 
         self.num_class = num_cls
@@ -29,15 +29,15 @@ class TFMamba(nn.Module):
         self.silu = nn.SiLU()
         # time split patch
         if cnn_region_feature == True:
-            self.t_patch_embed = PatchEmbed((224, 16), (14, 16), (14, 1), 4, self.embed_dim)
+            self.t_patch_embed = PatchEmbed((224, 16), (14, 16), (14, 1), ch_in, self.embed_dim)
         else:
-            self.t_patch_embed = PatchEmbed((64, 64), (4, 64), (4, 1), 4, self.embed_dim)
+            self.t_patch_embed = PatchEmbed((32, 64), (4, 64), (4, 1), ch_in, self.embed_dim)
         t_num_patch = self.t_patch_embed.num_patch
         # frequency split patch
         if cnn_region_feature == True:
-            self.f_patch_embed = PatchEmbed((224, 16), (224, 1), (1, 1), 4, self.embed_dim)
+            self.f_patch_embed = PatchEmbed((224, 16), (224, 1), (1, 1), ch_in, self.embed_dim)
         else:
-            self.f_patch_embed = PatchEmbed((64, 64), (64, 4), (1, 4), 4, self.embed_dim)
+            self.f_patch_embed = PatchEmbed((32, 64), (32, 8), (1, 8), ch_in, self.embed_dim)
         f_num_patch = self.t_patch_embed.num_patch
 
         if self.t_f_tocken:
