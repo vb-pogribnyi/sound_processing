@@ -1,5 +1,6 @@
 import os
 import torch
+import mlflow
 import argparse
 import numpy as np
 from tqdm import tqdm
@@ -17,6 +18,70 @@ def load_model(model_name):
         return get_aumamba()
     raise Exception(f"Unknown model {model_name}")
 
+def do_train(train_ds_name, val_ds_name, preproc_name, model_name, run_name="SoundLocator"):
+    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    model = load_model(model_name).to(device)
+    train_dl = get_dataloader(train_ds_name, preproc=preproc_name, mode='train')
+    val_dl = get_dataloader(val_ds_name, preproc=preproc_name, mode='val')
+    # print(model)
+    mse = torch.nn.MSELoss()
+    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    best_val_loss = np.inf
+    params = {
+        "model": model_name,
+        "preproc": preproc_name,
+        "train": train_ds_name,
+        "val": val_ds_name,
+    }
+    with mlflow.start_run(run_name=run_name):
+        mlflow.log_params(params)
+        for epoch in range(100):
+            losses = []
+            for audio, doa in tqdm(train_dl):
+                opt.zero_grad()
+                preds = model(audio.to(device))
+                gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
+                # print(audio.shape, doa.shape, preds.shape)
+                loss = mse(preds, gt.float())
+                loss.backward()
+                opt.step()
+                losses.append(loss.item())
+
+                break
+            if epoch % 1 == 0:
+                val_losses = []
+                for batch_id, (audio, doa) in tqdm(enumerate(val_dl)):
+                    if batch_id == 0:
+                        vis_features = audio[0].cpu().detach().numpy()
+                        if preproc_name == 'spec':
+                            vis_features = np.log(vis_features)
+                        vis_features -= vis_features.min()
+                        vis_features /= vis_features.max()
+                        vis_features *= 255
+                        vis_features = vis_features.astype(np.uint8)
+                        for map_id, map in enumerate(vis_features):
+                            mlflow.log_image(map, artifact_file=f"map_{map_id}.png")
+                    preds = model(audio.to(device))
+                    gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
+                    loss = mse(preds, gt.float())
+                    val_losses.append(loss.item())
+                    mean_val_loss = np.mean(val_losses)
+                    if mean_val_loss < best_val_loss:
+                        best_val_loss = mean_val_loss
+                        model_name = f'{epoch}ep_{args.model}_{args.train_data}_{args.val_data}_{args.preproc}.pth'
+                        result_dir = 'trained_models'
+                        os.makedirs(result_dir, exist_ok=True)
+                        torch.save(model.state_dict(), os.path.join(result_dir, model_name))
+                        mlflow.pytorch.log_model(
+                            pytorch_model=model,
+                            artifact_path="model",
+                            registered_model_name=f"{model_name}_{epoch}" # Optional: register directly to model registry
+                        )
+                print(epoch, np.mean(losses), mean_val_loss)
+                mlflow.log_metric("train_loss", np.mean(losses), epoch)
+                mlflow.log_metric("val_loss", mean_val_loss, epoch)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help="[aumamba, conformer, cross3d]")
@@ -24,38 +89,5 @@ if __name__ == '__main__':
     parser.add_argument('--val_data', help="[mmaud, kwave, collected]")
     parser.add_argument('--preproc', help="[spec, srp]")
     args = parser.parse_args()
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-    model = load_model(args.model).to(device)
-    train_dl = get_dataloader(args.train_data, preproc=args.preproc, mode='train')
-    val_dl = get_dataloader(args.val_data, preproc=args.preproc, mode='val')
-    # print(model)
-    mse = torch.nn.MSELoss()
-    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
-    best_val_loss = np.inf
-    for epoch in range(100):
-        losses = []
-        for audio, doa in tqdm(train_dl):
-            opt.zero_grad()
-            preds = model(audio.to(device))
-            gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
-            # print(audio.shape, doa.shape, preds.shape)
-            loss = mse(preds, gt.float())
-            loss.backward()
-            opt.step()
-            losses.append(loss.item())
-        if epoch % 1 == 0:
-            val_losses = []
-            for audio, doa in tqdm(val_dl):
-                preds = model(audio.to(device))
-                gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
-                loss = mse(preds, gt.float())
-                val_losses.append(loss.item())
-                mean_val_loss = np.mean(val_losses)
-                if mean_val_loss < best_val_loss:
-                    best_val_loss = mean_val_loss
-                    model_name = f'{epoch}ep_{args.model}_{args.train_data}_{args.val_data}_{args.preproc}.pth'
-                    result_dir = 'trained_models'
-                    os.makedirs(result_dir, exist_ok=True)
-                    torch.save(model.state_dict(), os.path.join(result_dir, model_name))
-            print(epoch, np.mean(losses), mean_val_loss)
+    do_train(args.train_data, args.val_data, args.preproc, args.model)
     print('done')
