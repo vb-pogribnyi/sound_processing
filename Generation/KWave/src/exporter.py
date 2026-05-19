@@ -24,15 +24,15 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
         shutil.rmtree(export_path)
     os.makedirs(export_path)
     angles = np.arange(-90, 90, angle_step)
-    rot_z = Rotation.from_euler('z', angles, degrees=True)
-    rot_x = Rotation.from_euler('x', angles, degrees=True)
+    rotations_z = Rotation.from_euler('z', angles, degrees=True)
+    rotations_x = Rotation.from_euler('x', angles, degrees=True)
     os.makedirs(exp_result_dir, exist_ok=True)
-    mics_z = np.stack([r.apply(mics) for r in rot_z])
-    mics_xz = np.stack([r.apply(mics_z.reshape(-1, 3)) for r in rot_x]).reshape(len(rot_x), len(rot_z), mics.shape[0], mics.shape[1])
+    mics_z = np.stack([r.apply(mics) for r in rotations_z])
+    mics_xz = np.stack([r.apply(mics_z.reshape(-1, 3)) for r in rotations_x]).reshape(len(rotations_x), len(rotations_z), mics.shape[0], mics.shape[1])
 
 
-    directions_z = np.stack([r.apply(sensors_direction) for r in rot_z])
-    directions_x = np.stack([r.apply(sensors_direction) for r in rot_x])
+    directions_z = np.stack([r.apply(sensors_direction) for r in rotations_z])
+    directions_x = np.stack([r.apply(sensors_direction) for r in rotations_x])
 
     mics_xz -= np.expand_dims(np.mean(mics_xz, axis=2), 2)
     result = {}
@@ -48,7 +48,10 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                     dx = source['x'] + mesh_meta['nx'] / 2 - sensors_origin_x
                     dy = source['y'] + mesh_meta['ny'] / 2 - sensors_origin_y
                     dz = source['z'] + mesh_meta['nz'] / 2 - sensors_origin_z
-                    source_directions.append((dx, dy, dz))
+                    source_directions.append((dx * mesh_meta['dx'], dy * mesh_meta['dy'], dz * mesh_meta['dz']))
+                avg_direction = np.mean(source_directions, axis=0)
+                directions_relative_x = np.stack([r.inv().apply(avg_direction) for r in rotations_x])
+                directions_relative_xz = np.stack([r.inv().apply(directions_relative_x) for r in rotations_z])
                 
                 for rot_z in range(len(angles)):
                     for rot_x in range(len(angles)):
@@ -94,6 +97,8 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                                 mic_out_idx_y,
                                 mic_out_idx_x
                             ))
+                        array_snapshot['source_relative'] = directions_relative_xz[rot_z, rot_x]
+                        array_snapshot['source_relative'][2] *= -1
                         if not is_positions_valid:
                             continue
                             
@@ -126,6 +131,8 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     result = {r: result[r] for r in result if len(result[r]) > 0}
     step_result = copy.deepcopy(result)
     for out_file_idx, out_file in tqdm(enumerate(out_files), position=0):
+        # if out_file_idx > 4:
+        #     continue
         out_data = np.load(out_file)
         for position in tqdm(result, position=1, leave=False):
             for rotation in tqdm(result[position], position=2, leave=False):
@@ -138,7 +145,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     print("Creating debug image.")
     if debug_file is not None:
         text_coord = 5
-        angles_z = [-90, 0, 30]
+        angles_z = [-70, 0, 30]
         angles_x = [-5, 0, 5]
         sensors_origin = None
         for rkey in result:
@@ -179,6 +186,8 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
                 cv.putText(img_z, str(int(source['angle_z'] * 10) / 10), (10, img_z.shape[0] - text_coord), cv.FONT_HERSHEY_SIMPLEX, 0.3, line_color, 1)
                 text_coord += 12
                 print("AngleZ:", source['angle_z'])
+            source_relative = f"{int(array_snapshot['source_relative'][0] * 100) / 100} {int(array_snapshot['source_relative'][1] * 100) / 100} {int(array_snapshot['source_relative'][2] * 100) / 100}"
+            cv.putText(img_z, source_relative, (50, img_z.shape[0] - text_coord+12), cv.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 255), 1)
 
 
         print('-----------------------------')
@@ -223,20 +232,13 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
 
 if __name__ == "__main__":
     # Mics positions defined as x, y, z coordinates in METERS (not mesh positions)
-    mics = np.array([
-        [0.00, 0.00, 0.00],
-        [0.05, 0.00, 0.00],
-        [0.10, 0.00, 0.00],
-        [0.15, 0.00, 0.00],
-        [0.00, 0.09, 0.00],
-        [0.05, 0.09, 0.00],
-        [0.10, 0.09, 0.00],
-        [0.15, 0.09, 0.00],
-        # [0.00, 0.00, 0.002],
-        # [0.05, 0.00, 0.002],
-        # [0.00, 0.06, 0.002],
-        # [0.05, 0.06, 0.002],
+    mics = np.array([   # MMAUD-compatible configuration
+        [-0.0467,   0.00, 0.00],
+        [  0.00, -0.0467, 0.00],
+        [ 0.0467,   0.00, 0.00],
+        [  0.00,  0.0467, 0.00],
     ])
     sensors_direction = np.array([[0, -1, 0]])
     # export('001', mics, sensors_direction, 5, [100, 100, 5], 'debug_img.png')
-    export('002', mics, sensors_direction, 5, [100, 25, 15], 'debug_img.png')
+    export('004', mics, sensors_direction, 15, [50, 15, 5], 'debug_img.png')
+    # export('008', mics, sensors_direction, 5, [30, 15, 5], 'debug_img.png')

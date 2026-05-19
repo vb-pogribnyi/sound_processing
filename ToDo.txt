@@ -2,6 +2,7 @@
 + Fix paths for MMAUD dataset, make it export into data/mmaud
 Add microphones configuration json for the MMAUD
 Export sample rate and signal length
++ Export source location along with (euler) angles
 + Set time start/end to exprt in mmaud
 + Set up sensor rotations 
 + Save SRP images for each rotations
