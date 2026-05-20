@@ -143,7 +143,7 @@ class MMAUDDataset(Dataset):
 
 
 
-def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode='train'):
+def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode='train', is_post_resize=True):
     if dataset_name == "mmaud":
         annotation_path = "data/mmaud/train_split.txt" if mode == 'train' else "data/mmaud/val_split.txt"
         gt_path = "data/mmaud/gt"
@@ -160,7 +160,7 @@ def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode
         raise Exception(f"Dataloader: unknown dataset {dataset_name}")
     transforms = []
     if preproc == "spec":
-        transforms.append(TransformSpectrogram(is_post_resize=True))
+        transforms.append(TransformSpectrogram(is_post_resize=is_post_resize))
     if preproc == "srp":
         if mic_pos is None:
             mic_pos = np.array(json.load(open(mics_path)))

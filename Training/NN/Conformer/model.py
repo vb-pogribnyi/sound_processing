@@ -6,6 +6,7 @@ import sys
 sys.path.append(os.path.dirname(__file__))
 from conformer import Conformer
 import torchvision.models as models
+from torchvision.transforms import Resize
 
 class ResNetConformer(torch.nn.Module):
     def __init__(self, in_ch=4, dim=256):
@@ -19,18 +20,23 @@ class ResNetConformer(torch.nn.Module):
                     num_attention_heads=2, 
                     num_encoder_layers=2,
                     in_channels=512)    # ResNet outputs 512 channels
+        
+        self.min_size = 8 # Minimum size accepted by conformer
+        self.resize = Resize((self.min_size, self.min_size))
 
     def forward(self, x):
         bb_input = self.pre_bb(x)
         features = self.backbone(bb_input)
+        if features.shape[-1] < self.min_size or features.shape[-2] < self.min_size:
+            features = self.resize(features)
         input_lengths = [features.shape[-2] for _ in range(features.shape[0])]
         outputs = self.conformer(features, torch.tensor(input_lengths))
 
         return outputs
 
 
-def get_model():
-    model = ResNetConformer()
+def get_model(in_ch=4):
+    model = ResNetConformer(in_ch=in_ch)
     return model
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ from Data.loader import get_dataloader
 def load_model(model_name, is_spec, ch_in):
     if model_name == "conformer":
         from NN.Conformer.model import get_model as get_conformer
-        return get_conformer()
+        return get_conformer(in_ch=ch_in)
     elif model_name == "cross3d":
         from NN.Cross3D.model import get_model as get_cross3d
         return get_cross3d(ch_in=ch_in)
@@ -20,8 +20,8 @@ def load_model(model_name, is_spec, ch_in):
 
 def do_train(train_ds_name, val_ds_name, preproc_name, model_name, run_name="SoundLocator"):
     device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
-    train_dl = get_dataloader(train_ds_name, preproc=preproc_name, mode='train')
-    val_dl = get_dataloader(val_ds_name, preproc=preproc_name, mode='val')
+    train_dl = get_dataloader(train_ds_name, preproc=preproc_name, mode='train', is_post_resize=(True if model_name == 'aumamba' else False))
+    val_dl = get_dataloader(val_ds_name, preproc=preproc_name, mode='val', is_post_resize=(True if model_name == 'aumamba' else False))
     for audio, doa in train_dl:
         ch_in = audio.shape[1]
         break
@@ -53,7 +53,7 @@ def do_train(train_ds_name, val_ds_name, preproc_name, model_name, run_name="Sou
                 # break
             if epoch % 1 == 0:
                 val_losses = []
-                for batch_id, (audio, doa) in tqdm(enumerate(val_dl)):
+                for batch_id, (audio, doa) in enumerate(tqdm(val_dl)):
                     if batch_id == 0:
                         for example_id, vis_features in enumerate(audio):
                             vis_features = vis_features.cpu().detach().numpy()

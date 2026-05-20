@@ -15,8 +15,11 @@ Add description for exporting the MMAUD dataset
 Add root folder description (that points to the dataset exporter thing)
 + Implement validation routine in the train pipeline
 + Save trained models
-Ensure training with different combinations of model/preprocessing is possible (e.g. Cross3d with spectrogram & Conformer with SRP)
++ Ensure training with different combinations of model/preprocessing is possible (e.g. Cross3d with spectrogram & Conformer with SRP)
 
 Fix the 0.02m grid source
 + Make Cross3D work with both spectrogram & srp
 + Integrate mlflow into the training
+
+
+Figure out why TAME performs worse than reported in papers
