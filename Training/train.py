@@ -12,7 +12,7 @@ def load_model(model_name, is_spec, ch_in):
         return get_conformer()
     elif model_name == "cross3d":
         from NN.Cross3D.model import get_model as get_cross3d
-        return get_cross3d()
+        return get_cross3d(ch_in=ch_in)
     elif model_name == "aumamba":
         from NN.TAME.get_model import get_model as get_aumamba      # This one has 'model' directory, so the file is renamed
         return get_aumamba(is_spec, ch_in=ch_in)

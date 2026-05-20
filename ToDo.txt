@@ -18,5 +18,5 @@ Add root folder description (that points to the dataset exporter thing)
 Ensure training with different combinations of model/preprocessing is possible (e.g. Cross3d with spectrogram & Conformer with SRP)
 
 Fix the 0.02m grid source
-Make Cross3D work with both spectrogram & srp
++ Make Cross3D work with both spectrogram & srp
 + Integrate mlflow into the training

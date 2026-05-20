@@ -22,7 +22,7 @@ class Cross3D(nn.Module):
 	"""
 	def __init__(self, res_the, res_phi, in_deep=1, in_krnl_sz=(5, 5, 5), in_nb_ch=32, pool_sz=(1, 1, 1),
 				 cr_deep=4, crThe_krnl_sz=(5, 3, 3), crPhi_krnl_sz=(5, 3, 3), cr_nb_ch=32, crThe_pool_sz=(1, 1, 2),
-				 crPhi_pool_sz=(1, 2, 1), out_conv_len=5, out_conv_dilation=2, out_nbh=128):
+				 crPhi_pool_sz=(1, 2, 1), out_conv_len=5, out_conv_dilation=2, out_nbh=128, ch_in=3):
 		"""
 		res_the: elevation resolution of the input maps
 		res_phi: azimuth resolution of the input maps
@@ -58,7 +58,7 @@ class Cross3D(nn.Module):
 		self.crPhi_nb_outAct = self.crPhi_resThe * self.crPhi_resPhi * cr_nb_ch
 
 		self.in_sphPad = at_modules.SphericPad((in_krnl_sz[2] // 2,) * 2 + (in_krnl_sz[1] // 2,) * 2)
-		self.in_conv = nn.ModuleList([at_modules.CausConv3d(3, in_nb_ch, in_krnl_sz)] if in_deep > 0 else [])
+		self.in_conv = nn.ModuleList([at_modules.CausConv3d(ch_in, in_nb_ch, in_krnl_sz)] if in_deep > 0 else [])
 		self.in_conv += nn.ModuleList(
 			[at_modules.CausConv3d(in_nb_ch, in_nb_ch, in_krnl_sz) for i in range(in_deep - 1)])
 		self.in_prelu = nn.ModuleList([nn.PReLU(in_nb_ch) for i in range(in_deep)])

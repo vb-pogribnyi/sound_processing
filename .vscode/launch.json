@@ -169,9 +169,9 @@
             "program": "Training/train.py",
             "console": "integratedTerminal",
             "args": [
-                "--model", "aumamba",
+                // "--model", "aumamba",
                 // "--model", "conformer",
-                // "--model", "cross3d",
+                "--model", "cross3d",
                 "--train_data", "mmaud",
                 // "--train_data", "kwave",
                 "--val_data", "mmaud",
