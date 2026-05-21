@@ -9,7 +9,7 @@ Export sample rate and signal length
 + Integrate TAME into the universal train pipeline
 For MMAUD testing - add option to test all microphones rotations
 Add option to test the captured recordings
-Add visualization of the final prediction
++ Add visualization of the final prediction
 + Make visualization of the inputs (srp & spec) more systematic
 Add description for exporting the MMAUD dataset
 Add root folder description (that points to the dataset exporter thing)
@@ -23,3 +23,5 @@ Fix the 0.02m grid source
 
 
 Figure out why TAME performs worse than reported in papers
+    - Try different windows with unchanged collected
+    - Create issue on Github
