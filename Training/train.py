@@ -42,7 +42,7 @@ def do_train(train_ds_name, val_ds_name, preproc_name, model_name, run_name="Sou
         mlflow.log_params(params)
         for epoch in range(100):
             losses = []
-            for audio, doa in tqdm(train_dl):
+            for batch_id, (audio, doa) in enumerate(tqdm(train_dl)):
                 opt.zero_grad()
                 preds = model(audio.to(device))
                 gt = doa.unsqueeze(1).repeat(1, preds.shape[1], 1).to(device)
@@ -51,6 +51,25 @@ def do_train(train_ds_name, val_ds_name, preproc_name, model_name, run_name="Sou
                 loss.backward()
                 opt.step()
                 losses.append(loss.item())
+
+                if batch_id == 0:
+                    vis_gts_trn, vis_preds_trn = [], []
+                    for pred_item, doa_item in zip(preds, gt):
+                        # Train predictions visualization
+                        doa_item = sph2cart(doa_item[0])
+                        pred_item = sph2cart(pred_item[0])
+                        vis_gts_trn.append(doa_item.detach().cpu().numpy())
+                        vis_preds_trn.append(pred_item.detach().cpu().numpy())
+                    vis_gts_trn = np.array(vis_gts_trn).T
+                    vis_preds_trn = np.array(vis_preds_trn).T
+                    fig = plt.figure(figsize=(12, 12))
+                    ax = fig.add_subplot(111, projection='3d')
+                    ax.scatter(vis_gts_trn[0], vis_gts_trn[1], vis_gts_trn[2], color='crimson', label='Ground Truth', s=2)
+                    ax.scatter(vis_preds_trn[0], vis_preds_trn[1], vis_preds_trn[2], color='deepskyblue', label='Estimation', s=1)
+                    ax.set_title(f'Predictions Train - ep {epoch}')
+                    ax.grid(True)
+                    mlflow.log_figure(fig, f"preds_trn_{epoch}.png")
+                    plt.close()
 
                 # break
             if epoch % 1 == 0:
