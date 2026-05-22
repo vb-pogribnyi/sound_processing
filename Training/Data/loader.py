@@ -1,4 +1,5 @@
 import os
+import math
 import torch
 import json
 import numpy as np
@@ -141,9 +142,39 @@ class MMAUDDataset(Dataset):
 
         return audio, doa[0]
 
+class PermutationException(Exception):
+    pass
 
+def do_permutation(index: int, size: int):
+    """
+    Return the index-th unique permutation
+    of [0, 1, ..., size-1].
 
-def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode='train', is_post_resize=True):
+    Permutations are ordered lexicographically.
+
+    Total permutations = size!
+    """
+
+    total = math.factorial(size)
+
+    if not (0 <= index < total):
+        raise PermutationException(f"index must be in [0, {total})")
+
+    items = list(range(size))
+    result = []
+
+    # Factoradic / Lehmer code decoding
+    for i in range(size, 0, -1):
+        fact = math.factorial(i - 1)
+
+        pos = index // fact
+        index %= fact
+
+        result.append(items.pop(pos))
+
+    return result
+
+def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode='train', is_post_resize=True, permutation=None):
     if dataset_name == "mmaud":
         annotation_path = "data/mmaud/train_split.txt" if mode == 'train' else "data/mmaud/val_split.txt"
         gt_path = "data/mmaud/gt"
@@ -164,8 +195,11 @@ def get_dataloader(dataset_name, preproc="", mic_pos=None, debug_name=None, mode
     if preproc == "srp":
         if mic_pos is None:
             mic_pos = np.array(json.load(open(mics_path)))
+            if permutation is not None:
+                permutation = do_permutation(permutation, mic_pos.shape[0])
+                mic_pos = mic_pos[permutation]
         N = mic_pos.shape[0]       # Number of microphones
         K = 4096    # Number of signal samples
         transforms.append(TransformSRP(N, K, mic_pos, fs, cat_maxCoor=True))
     dataset = MMAUDDataset(annotation_path, gt_path, audio_path, transforms=transforms)
-    return DataLoader(dataset, batch_size=6)
+    return DataLoader(dataset, batch_size=6), permutation

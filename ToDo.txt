@@ -7,7 +7,7 @@ Export sample rate and signal length
 + Set up sensor rotations 
 + Save SRP images for each rotations
 + Integrate TAME into the universal train pipeline
-For MMAUD testing - add option to test all microphones rotations
++ For MMAUD testing - add option to test all microphones rotations
 Add option to test the captured recordings
 + Add visualization of the final prediction
 + Make visualization of the inputs (srp & spec) more systematic

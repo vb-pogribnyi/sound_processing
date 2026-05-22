@@ -175,8 +175,9 @@
                 "--train_data", "mmaud",
                 // "--train_data", "kwave",
                 "--val_data", "mmaud",
-                // "--preproc", "srp"
-                "--preproc", "spec"
+                "--preproc", "srp",
+                // "--preproc", "spec",
+                "--permutations"
             ],
             "justMyCode": false
         },
