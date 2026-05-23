@@ -7,7 +7,7 @@ from PlaneReader import PlaneReader
 from SourceDrawer import SourceDrawer
 
 profile = '01_sphere'
-profiles = ['01_sphere', '02_cylinder', '03_diff_cylinder', '04_diff2_cylinder']
+profiles = ['02_cylinder']
 
 dt = 1e-7
 rpm = 3500
@@ -15,8 +15,7 @@ rps = rpm / 60      # revolutions per second
 nblades=1
 nbladess = [1, 2, 3]
 ndivs = 150
-mesh_div = 0.002    # 2 mm mesh step
-mesh_divs = [0.002, 0.02]
+mesh_divs = [0.008]
 if rps == 0:
     tmax = 1e-5
 else:
@@ -26,7 +25,7 @@ for profile in profiles:
     for nblades in nbladess:
         for mesh_div in mesh_divs:
             print('Generating:', profile, nblades, mesh_div)
-            plane_reader = PlaneReader(f'/app/src/CircularSignal/profiles/{profile}')
+            plane_reader = PlaneReader(f'/app/Generation/KWave/src/CircularSignal/profiles/{profile}')
             nt = int(tmax / dt)
             print(dt, nt, ndivs)
             # The mesh step is given in meters. E.g. 
@@ -56,7 +55,7 @@ for profile in profiles:
                 plane_reader=plane_reader,
                 nblades=nblades,
                 blade_length=0.1,       # 10 cm
-                blade_width=0.015,      # 1.5 cm
+                blade_width=0.035,      # 35 mm
                 blade_thickness=0.015   # 15 mm - whole plane; signal itself will be thinner
             )
             angle = 0

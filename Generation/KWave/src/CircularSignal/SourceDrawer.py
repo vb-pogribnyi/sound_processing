@@ -121,7 +121,8 @@ class SourceDrawer:
                     (int(xmax * mult + offset), int(ymax * mult + offset)), 
                     (255, 255, 0), 1)
 
-            cv.imshow('', debug_img)
+        #     cv.imshow('', debug_img)
+            cv.imwrite('/app/dbg1.png', debug_img)
         #     cv.waitKey()
 
 
@@ -151,6 +152,7 @@ class SourceDrawer:
         idxs_t = set()
         idxs_y = set()
 
+        max_mapped_value = 0
         for idx_z in range(idx_zmin, idx_zmax + 1):
             for idx_x in range(idx_xmin, idx_xmax + 1):
                 for idx_y in range(idx_ymin, idx_ymax + 1):
@@ -176,6 +178,8 @@ class SourceDrawer:
                         is_reader_debug = False
                         mapped_value = self.plane_reader.sample(mapping_l, mapping_t, mapping_y,
                                                                 mapping_dt, mapping_dy, is_reader_debug)
+                        if mapped_value > max_mapped_value:
+                             max_mapped_value = mapped_value
                         # if np.isnan(mapped_value):
                         #      mapped_value = 0
                         assert mapping_l >= 0, "Wrong mapping index."
@@ -196,13 +200,15 @@ class SourceDrawer:
                         
                         # self.mesh.mesh[idx_x, idx_y, idx_z, t] = mapped_value
                         
-                        if DEBUG and idx_z == int((idx_zmin + idx_zmax) / 2)+2:
+                        if DEBUG and idx_z == int((idx_zmin + idx_zmax) / 2)+1:
                             cv.circle(debug_img, 
                                       (int(profile_x * mult + offset), int(profile_y * mult + offset)),
                                        1, (0, int(mapped_value), 0))
+        assert max_mapped_value > 0, "No data written!"
 
         if DEBUG:
-            cv.imshow('mapping', debug_img)
+        #     cv.imshow('mapping', debug_img)
+            cv.imwrite('/app/dbg2.png', debug_img)
             cv.waitKey()
 
 
