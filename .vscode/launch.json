@@ -169,15 +169,15 @@
             "program": "Training/train.py",
             "console": "integratedTerminal",
             "args": [
-                // "--model", "aumamba",
-                "--model", "conformer",
+                "--model", "aumamba",
+                // "--model", "conformer",
                 // "--model", "cross3d",
                 "--train_data", "mmaud",
                 // "--train_data", "kwave",
                 "--val_data", "mmaud",
-                "--preproc", "srp",
-                // "--preproc", "spec",
-                "--permutations"
+                // "--preproc", "srp",
+                "--preproc", "spec",
+                // "--permutations"
             ],
             "justMyCode": false
         },
