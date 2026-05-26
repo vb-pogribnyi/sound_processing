@@ -98,6 +98,13 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Create Dataset - Captured",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "Training/Processing/Captured/create_dataset.py",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Export Waveforms",
             "type": "debugpy",
             "request": "launch",

@@ -11,7 +11,8 @@
 *.zip
 *.wav
 *.pth
-processing
+*.bak
+./processing
 outputs
 slices
 input_mesh
