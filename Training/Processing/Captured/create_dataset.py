@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from scipy.signal import medfilt
 import matplotlib.pyplot as plt
+from scipy.interpolate import interp1d
 
 EXPORT_ROWS = 15
 # Add index for performance boost
@@ -18,12 +19,19 @@ os.makedirs(result_audio_dir, exist_ok=True)
 os.makedirs(result_gt_dir, exist_ok=True)
 os.makedirs(result_cls_dir, exist_ok=True)
 # Save array configuration
-with open(os.path.join(result_dir, 'mics.json'), 'w') as mics_f:
-    array_configuration = [( 0.0225, 0.00, 0.00),
+siglen = 512
+fs = 44000
+fs_src = 200000
+with open(os.path.join(result_dir, 'meta.json'), 'w') as meta_f:
+    meta = {
+        "mics_pos": [( 0.0225, 0.00, 0.00),
                         ( 0.0075, 0.00, 0.00),
                         (-0.0075, 0.00, 0.00),
-                        ( -0.0225, 0.00, 0.00)]
-    mics_f.write(json.dumps(array_configuration, indent=2))
+                        ( -0.0225, 0.00, 0.00)],
+        "sample_rate": fs,
+        "signal_length": siglen
+    }
+    meta_f.write(json.dumps(meta, indent=2))
 
 cur = conn.cursor()
 print(cur.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall())
@@ -31,17 +39,25 @@ filtered_notes = ["'" + n[0] + "'" for n in cur.execute(f"SELECT note FROM captu
 print(filtered_notes)
 out_idx = 0
 
-def fix_outliers(arr):
+def process_signal(arr):
     thresh = 1000
     arr = np.array(arr)
     arr_filt = medfilt(arr)
     arr_fixed = arr.copy()
     arr_fixed[np.abs(arr - arr_filt) >= thresh] = arr_filt[np.abs(arr - arr_filt) >= thresh]
-    # plt.plot(arr)
-    # plt.plot(arr_filt)
-    # plt.plot(arr_fixed)
+    time_end = len(arr) / fs_src
+    x_orig = np.linspace(0, time_end, len(arr))
+    x_new = np.linspace(0, time_end, int(len(arr) / fs_src * fs))
+    arr_f = interp1d(x_orig, arr_fixed)
+    arr_resampled = arr_f(x_new)
+    # plt.plot(x_orig, arr, label='original')
+    # plt.plot(x_orig, arr_filt, label='filtered')
+    # plt.plot(x_orig, arr_fixed, label='fixed')
+    # plt.plot(x_new, arr_resampled, label='resampled')
+    # plt.legend()
     # plt.show()
-    return arr_fixed
+    idx_start = np.random.randint(0, len(arr_resampled) - siglen)
+    return arr_resampled[idx_start:idx_start + siglen]
 
 with open(os.path.join(result_dir, "train_split.txt"), 'w') as split_f:
     pass # Create or erase the file
@@ -72,10 +88,10 @@ for note in filtered_notes:
         vs2[:idx_skip] = vs2[idx_skip + 1]
         vs3[:idx_skip] = vs3[idx_skip + 1]
         vs4[:idx_skip] = vs4[idx_skip + 1]
-        vs1 = fix_outliers(vs1)
-        vs2 = fix_outliers(vs2)
-        vs3 = fix_outliers(vs3)
-        vs4 = fix_outliers(vs4)
+        vs1 = process_signal(vs1)
+        vs2 = process_signal(vs2)
+        vs3 = process_signal(vs3)
+        vs4 = process_signal(vs4)
         # category = '3_blades' if '3' in note else '2_blades'
         
         audio = np.stack([vs1, vs2, vs3, vs4])
