@@ -7,7 +7,8 @@ from scipy.signal import medfilt
 import matplotlib.pyplot as plt
 
 EXPORT_ROWS = 15
-
+# Add index for performance boost
+# CREATE INDEX capture_idx ON sound_data (captureId);
 conn = sqlite3.connect('C:\\Users\\vbpoh\\Documents\\Dojo\\PhD\\Експерименти\\Стенд_1.7м\\sound_database_3p_1.7m.db')
 result_dir = "data/captured"
 result_audio_dir = os.path.join(result_dir, "audio", "0")
