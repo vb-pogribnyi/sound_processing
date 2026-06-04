@@ -27,6 +27,11 @@
             "label": "clear_slices",
             "type": "shell",
             "command": "rm -rf /app/Generation/KWave/slices"
+        },
+        {
+            "label": "FPGA simulation",
+            "type": "shell",
+            "command": "iverilog ./Acquisition/FPGA/MCP3461Master.v ./Acquisition/FPGA/MCP3461MasterTester.v && vvp a.out"
         }
     ]
 }

@@ -12,6 +12,8 @@
 *.wav
 *.pth
 *.bak
+*.vcd
+*.out
 ./processing
 outputs
 slices
