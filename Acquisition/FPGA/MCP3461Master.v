@@ -135,6 +135,9 @@ always @(posedge i_CLK50) begin
         end
         if (transmitting) begin
             if (sclk) begin // Falling edge; sclk will update to low at the end of posedge handler
+                if (read_offset > 1) begin
+                    read_offset <= 2;
+                end
                 tx_shift_reg <= {tx_shift_reg[6:0], 1'b0};
                 o_MOSI <= tx_shift_reg[7];
                 o_CS <= 0;

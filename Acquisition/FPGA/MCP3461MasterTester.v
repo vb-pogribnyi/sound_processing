@@ -23,8 +23,18 @@ module MCP3461MasterTester;
     wire [15:0] o_OUT1;
     wire [15:0] o_OUT2;
     
-    reg [15:0] value1 = 16'hACDC;
-    reg [15:0] value2 = 16'hBBDF;
+    // Output simulation. 8 bits status + 16 bit ADC value
+    reg [23:0] value1 = 24'hF0ACDC;
+    reg [23:0] value2 = 24'hF1BBDF;
+    reg [7:0] data_in = 8'h00;
+    reg [2:0] idx_in = 0;
+    always @(posedge o_SCLK) begin
+        if (idx_in == 0) begin
+            data_in <= 8'h00;
+        end
+        data_in[idx_in] <= o_MOSI;
+        idx_in <= idx_in + 1;
+    end
     
     
     integer i;
@@ -62,11 +72,16 @@ module MCP3461MasterTester;
         // Add stimulus here
         for (j = 15; j >= 0; j = j - 1)
         begin
-            for (i = 0; i < 17; i = i + 1) begin
+            for (i = 0; i < 25; i = i + 1) begin
                 @(negedge o_SCLK);
-                if (i > 0) begin
-                    miso[0] <= value1[15 - (i - 1)];
-                    miso[1] <= value2[15 - (i - 1)];
+                miso[0] <= value1[23 - i-1];
+                miso[1] <= value2[23 - i-1];
+                if (o_CS) begin
+                    i <= 0;
+                    j <= j - 1;
+                    if (j == 0) begin
+                        $finish;
+                    end
                 end
             end
         end
