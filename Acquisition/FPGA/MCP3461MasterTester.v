@@ -42,10 +42,12 @@ module MCP3461MasterTester;
     always #5 i_CLK = ~i_CLK;
     always @(posedge o_CS) begin
         i <= 0;
+        value1 <= value1 + 1;
+        value2 <= value2 + 2;
     end
 
     // Instantiate the Unit Under Test (UUT)
-    MCP3461Master #( .NUM_ADC(2) ) uut (
+    MCP3461Master #( .NUM_ADC(2), .ADC_ADDR(1) ) uut (
         .i_CLK50(i_CLK),
         .i_INTERRUPT(interrupt),
         .i_MISO(miso),

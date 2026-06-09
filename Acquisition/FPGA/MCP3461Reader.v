@@ -14,13 +14,16 @@ reg is_valid = 0;
 always @(posedge i_SCLK) begin
     if (!i_CS) begin
         // Read from MISO
+        if (bit_idx == 0) begin
+            is_valid <= 0;
+        end
         if (bit_idx > 1) begin  // First 2 bits are always invalid
             if (bit_idx < 24) begin
                 rx_shift_reg <= {rx_shift_reg[30:0], i_MISO};
                 o_RDY <= 0;
             end
             if (bit_idx == 7) begin
-                is_valid <= rx_shift_reg[0] == !rx_shift_reg[1];
+                is_valid <= rx_shift_reg[0] == !i_MISO;
             end
         end
         bit_idx <= bit_idx + 1;
@@ -28,7 +31,6 @@ always @(posedge i_SCLK) begin
     else begin
         // Reset reading
         bit_idx <= 0;
-        is_valid <= 0;
         rx_shift_reg <= 0;
     end
     if (bit_idx == 24) begin
