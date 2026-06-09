@@ -8,7 +8,8 @@ module MCP3461Master #(
     output reg o_MOSI,
     output reg o_CS,
     output wire o_SCLK,
-    output wire o_MCLK
+    output wire o_MCLK,
+    output wire [16 * NUM_ADC-1:0] o_VALUE
 );
 reg [7:0] tx_buff [0:16];
 reg [7:0] tx_len = 0;
@@ -16,13 +17,6 @@ reg [7:0] cfg [0:4];
 reg [3:0] byte_idx;
 reg [2:0] bit_idx;
 reg [7:0] tx_shift_reg;
-reg [31:0] rx_shift_reg [NUM_ADC-1:0];
-
-
-// DEBUG
-wire [31:0] rx_shift_reg_0 = rx_shift_reg[0];
-wire [31:0] rx_shift_reg_1 = rx_shift_reg[1];
-
 
 reg transmitting = 0;
 reg trigger = 0;
@@ -40,6 +34,20 @@ localparam	FRESH       = 3'h0,
 reg [2:0] state = FRESH;
 reg [1:0] cnt = 0;
 reg [16:0] to_cnt = TIMEOUT;
+wire [NUM_ADC-1:0] reader_rdy;
+genvar gi;
+generate
+for (gi = 0; gi < NUM_ADC ; gi = gi + 1) begin: readers
+    MCP3461Reader reader ( 
+        .i_CLK50(i_CLK50),
+        .i_MISO(i_MISO[gi]),
+        .i_SCLK(sclk),
+        .i_CS(o_CS),
+        .o_RDY(reader_rdy[gi]),
+        .o_VALUE(o_VALUE[16 * (gi+1)-1:16 * gi])
+    );
+end
+endgenerate;
 initial begin
     o_CS = 1;
     cfg[0] = 8'hC3;  // CONFIG0. Internal ref, external MCLK, no current, conv mode
@@ -51,11 +59,11 @@ initial begin
     // cfg[5] = 8'h01;  // MUX. Measuring CH0 vs CH1
     // cfg[6] = 8'h45;  // SCAN. 
     // Fill configuration...
+    
 end
 // SDI (MOSI) clocked on rising edge, update should be on falling edge
 // SDO (MISO) clocked out on falling edge, read should be on rising edge.
 assign o_MCLK = (cnt >= 2);
-reg [1:0] read_offset = 0;
 always @(posedge i_CLK50) begin
     cnt <= cnt + 1;
     if (cnt == 0) begin // 6 MHZ clock
@@ -126,18 +134,12 @@ always @(posedge i_CLK50) begin
             byte_idx <= 0;
             bit_idx <= 7;
             tx_shift_reg <= tx_buff[0];
-            read_offset <= 3;
-            
-            // rx_shift_reg <= 0;
-            for (i = 0; i < NUM_ADC; i = i + 1) begin
-                rx_shift_reg[i] <= 0;
-            end
         end
         if (transmitting) begin
             if (sclk) begin // Falling edge; sclk will update to low at the end of posedge handler
-                if (read_offset > 1) begin
-                    read_offset <= 2;
-                end
+                // if (read_offset > 1) begin
+                //     read_offset <= 2;
+                // end
                 tx_shift_reg <= {tx_shift_reg[6:0], 1'b0};
                 o_MOSI <= tx_shift_reg[7];
                 o_CS <= 0;
@@ -149,22 +151,10 @@ always @(posedge i_CLK50) begin
                 else begin
                     bit_idx <= bit_idx - 1;
                 end
-            end
-            else begin // Rising edge; sclk will update to high at the end of posedge handler
-                if (read_offset == 0) begin
-                    if (byte_idx < 4) begin
-                        for (i = 0; i < NUM_ADC; i = i + 1) begin
-                            rx_shift_reg[i] <= {rx_shift_reg[i][30:0], i_MISO[i]};
-                        end
+                if (bit_idx == 7) begin
+                    if (byte_idx == tx_len) begin
+                        transmitting <= 0;
                     end
-                    if (bit_idx == 7) begin
-                        if (byte_idx == tx_len) begin
-                            transmitting <= 0;
-                        end
-                    end
-                end
-                else begin
-                    read_offset <= read_offset - 1;
                 end
             end
         end

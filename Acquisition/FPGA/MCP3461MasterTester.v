@@ -27,19 +27,22 @@ module MCP3461MasterTester;
     reg [23:0] value1 = 24'hF0ACDC;
     reg [23:0] value2 = 24'hF1BBDF;
     reg [7:0] data_in = 8'h00;
-    reg [2:0] idx_in = 0;
+    reg [2:0] idx_in = 7;
     always @(posedge o_SCLK) begin
-        if (idx_in == 0) begin
+        if (idx_in == 7) begin
             data_in <= 8'h00;
         end
         data_in[idx_in] <= o_MOSI;
-        idx_in <= idx_in + 1;
+        idx_in <= idx_in - 1;
     end
     
     
     integer i;
     integer j;
     always #5 i_CLK = ~i_CLK;
+    always @(posedge o_CS) begin
+        i <= 0;
+    end
 
     // Instantiate the Unit Under Test (UUT)
     MCP3461Master #( .NUM_ADC(2) ) uut (
@@ -72,10 +75,10 @@ module MCP3461MasterTester;
         // Add stimulus here
         for (j = 15; j >= 0; j = j - 1)
         begin
-            for (i = 0; i < 25; i = i + 1) begin
+            for (i = 0; i < 23; i = i + 1) begin
                 @(negedge o_SCLK);
-                miso[0] <= value1[23 - i-1];
-                miso[1] <= value2[23 - i-1];
+                miso[0] <= value1[22 - i];
+                miso[1] <= value2[22 - i];
                 if (o_CS) begin
                     i <= 0;
                     j <= j - 1;
