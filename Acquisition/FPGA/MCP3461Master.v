@@ -1,3 +1,5 @@
+`include "src/MCP3461Reader.v"
+
 module MCP3461Master #(
     parameter NUM_ADC   = 4,
     parameter ADC_ADDR  = 0
@@ -35,7 +37,7 @@ localparam cmd_write_cfg = 8'h06;   // 00 0001 10
 localparam	TIMEOUT = 4;
 localparam	FRESH       = 3'h0,
             ALIVE       = 3'h1,
-            // CONFIGURING = 3'h2,
+            CONFIGURING = 3'h2,
             READING     = 3'h3,
             ERROR       = 3'h4;
 reg [1:0] cnt = 0;

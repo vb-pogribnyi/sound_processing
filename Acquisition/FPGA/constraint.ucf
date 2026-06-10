@@ -12,17 +12,17 @@ NET "o_LED1P" LOC = "P45";
 NET "o_LED2P" LOC = "P46";
 
 
-#NET "i_MISO4" LOC = "P101";
-NET "i_MISO4" LOC = "P84";
+# #NET "i_MISO4" LOC = "P101";
+# NET "i_MISO4" LOC = "P84";
 
-NET "i_MISO3" LOC = "P98";
-NET "i_MISO2" LOC = "P97";
-#NET "i_MISO1" LOC = "P84";
-NET "i_MISO1" LOC = "P101";
+# NET "i_MISO3" LOC = "P98";
+# NET "i_MISO2" LOC = "P97";
+# #NET "i_MISO1" LOC = "P84";
+# NET "i_MISO1" LOC = "P101";
 
-NET "o_SCLK" LOC = "P105";
-NET "o_SCLK" SLEW = SLOW;
-NET "o_SCLK" DRIVE = 4;
+# NET "o_SCLK" LOC = "P105";
+# NET "o_SCLK" SLEW = SLOW;
+# NET "o_SCLK" DRIVE = 4;
 NET "o_MOSI" LOC = "P102";
 NET "i_OCLK" LOC = "P123";
 
@@ -47,10 +47,10 @@ NET "o_OUTPUT2[7]" LOC = "P119";
 NET "o_RDY" LOC = "P124";
 
 // Parallel output
-NET "o_CONVST" LOC = "P104";
-// NET "o_CONVST" IOSTANDARD = LVCMOS33;
-NET "o_CONVST" SLEW = SLOW;
-NET "o_CONVST" DRIVE = 4;
+# NET "o_CONVST" LOC = "P104";
+# // NET "o_CONVST" IOSTANDARD = LVCMOS33;
+# NET "o_CONVST" SLEW = SLOW;
+# NET "o_CONVST" DRIVE = 4;
 
 NET "i_AUX1" LOC = "P131";
 NET "i_AUX2" LOC = "P132";
@@ -72,3 +72,25 @@ NET "i_SW4" LOC = "P93";
 NET "i_SW3" LOC = "P92";
 NET "i_SW2" LOC = "P88";
 NET "i_SW1" LOC = "P87";
+
+
+NET "o_MCP_nCS" LOC = "P16";
+NET "o_MCP_MCLK" LOC = "P15";
+# NET "o_MCP_nIRQ" LOC = "P17";
+NET "o_MCP_SCK" LOC = "P21";
+NET "o_MCP_SDI" LOC = "P22";
+NET "i_MCP_SDO1" LOC = "P23";
+NET "i_MCP_SDO2" LOC = "P24";
+NET "i_MCP_SDO3" LOC = "P26";
+NET "i_MCP_SDO4" LOC = "P27";
+# NET "o_CAM_D3" LOC = "P29";
+# NET "o_CAM_PCLK" LOC = "P30";
+# NET "o_CAM_D6" LOC = "P32";
+# NET "o_CAM_MCLK" LOC = "P33";
+# NET "o_CAM_D7" LOC = "P34";
+# NET "o_CAM_HSYNC" LOC = "P35";
+# NET "o_CAM_VSYNC" LOC = "P66";
+# NET "o_CAM_SCK" LOC = "P51";
+# NET "o_CAM_SDA" LOC = "P50";
+# NET "o_MCP_nIRQ3" LOC = "P48";
+# NET "o_MCP_nIRQ2" LOC = "P47";
