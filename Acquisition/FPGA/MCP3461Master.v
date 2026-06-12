@@ -33,6 +33,7 @@ assign o_SCLK = sclk & !o_CS;
 // then the w/r type with 10 being incremental write and 01 being static read
 localparam cmd_read_int = 8'h15;    // 00 0101 01
 localparam cmd_read_val = 8'h01;    // 00 0000 01
+// localparam cmd_read_val = 8'h09;    // 00 0011 01
 localparam cmd_write_cfg = 8'h06;   // 00 0001 10
 localparam	TIMEOUT = 4;
 localparam	FRESH       = 3'h0,

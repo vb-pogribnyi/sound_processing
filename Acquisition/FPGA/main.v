@@ -124,7 +124,7 @@ module led(
     assign out2 = outputs[16 * (1+1)-1:16 * 1];
     assign out3 = outputs[16 * (2+1)-1:16 * 2];
     assign out4 = outputs[16 * (3+1)-1:16 * 3];
-    MCP3461Master #( .NUM_ADC(NUM_ADC), .ADC_ADDR(0) ) adc_master (
+    MCP3461Master #( .NUM_ADC(NUM_ADC), .ADC_ADDR(1) ) adc_master (
         .i_CLK50(i_CLK),
         .i_INTERRUPT(interrupt),
         .i_MISO(miso),
@@ -145,11 +145,11 @@ module led(
     wire [1:0] sw34;
     assign sw34[0] = i_SW4;
     assign sw34[1] = i_SW3;
-    // assign o_DBG6 = i_OCLK;
+    assign o_DBG6 = 0;
     // assign o_DBG6 = i_MISO4;
     assign o_DBG14 = var_switch;
     assign o_DBG5 = rdy;
-    // assign o_DBG12 = o_SCLK;
+    assign o_DBG12 = 0;
     //assign o_DBG12 = o_OUTPUT[2];
     assign o_DBG13 = o_OUTPUT[3];
      wire [31:0] var1;
