@@ -73,7 +73,7 @@ module led(
     output wire o_DBG14,
     input wire i_AUX1,
     input wire i_AUX2
-    );
+    ); 
      parameter CLK_FREQ = 50000000;
      localparam COUNT_MAX = CLK_FREQ / 100;
      reg [31:0] counter;
@@ -133,7 +133,8 @@ module led(
         .o_SCLK(o_MCP_SCK),
         .o_MCLK(o_MCP_MCLK),
         .o_STATE(mcp_state),
-        .o_VALUE(outputs)
+        .o_VALUE(outputs),
+        .o_RDY(rdy)
     );
 
 
@@ -216,9 +217,9 @@ module led(
     OutputterBuff #(.BUFF_DEPTH(4096), .CHUNK_SIZE(8))  out (
         .i_OUT1(out_tst), 
         
-        .i_OUT2(out4), 
-        .i_OUT3(out4), 
-        .i_OUT4(out4), 
+        .i_OUT2(out1), 
+        .i_OUT3(out1), 
+        .i_OUT4(out1), 
         
         //.i_OUT1(out1_tst), 
         //.i_OUT2(out2_tst), 

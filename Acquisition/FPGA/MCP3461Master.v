@@ -13,7 +13,8 @@ module MCP3461Master #(
     output wire o_SCLK,
     output wire o_MCLK,
     output reg [2:0] o_STATE,
-    output wire [16 * NUM_ADC-1:0] o_VALUE
+    output wire [16 * NUM_ADC-1:0] o_VALUE,
+    output wire o_RDY
 );
 reg [7:0] tx_buff [0:16];
 reg [7:0] tx_len = 0;
@@ -44,6 +45,7 @@ localparam	FRESH       = 3'h0,
 reg [1:0] cnt = 0;
 reg [16:0] to_cnt = TIMEOUT;
 wire [NUM_ADC-1:0] reader_rdy;
+assign o_RDY = &reader_rdy;
 genvar gi;
 generate
 for (gi = 0; gi < NUM_ADC ; gi = gi + 1) begin: readers
@@ -77,7 +79,7 @@ assign o_MCLK = (cnt >= 2);
 always @(posedge i_CLK50) begin
     cnt <= cnt + 1;
     if (cnt == 0) begin // 6 MHZ clock
-        sclk <= !sclk;
+        sclk <= !sclk; 
 
         // The state-machine sets transmission data and trigger, if required.
         case(o_STATE)

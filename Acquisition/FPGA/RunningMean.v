@@ -35,7 +35,7 @@ module RunningMean(
 	always @(posedge i_RDY) begin
 		mean <= mean + (diff >>> K);
 		variance <= variance + ((diff2 - variance) >>> K);
-		o_VARIANCE <= variance >> 4;
+		o_VARIANCE <= variance >> 12;
 		o_MEAN <= mean >>> K;
 	end
 
