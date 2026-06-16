@@ -64,11 +64,11 @@
       39,
       40
     ],
-    "visible_layers": "ffc1000_ffffffff",
+    "visible_layers": "ff81000_ffffffff",
     "zone_display_mode": 0
   },
   "meta": {
-    "filename": "ADC_MCP_Module.kicad_prl",
+    "filename": "ADC_MainBoard.kicad_prl",
     "version": 3
   },
   "project": {

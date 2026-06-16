@@ -45,16 +45,10 @@
         "silk_text_thickness": 0.15,
         "silk_text_upright": false,
         "zones": {
-          "min_clearance": 0.35
+          "min_clearance": 0.5
         }
       },
-      "diff_pair_dimensions": [
-        {
-          "gap": 0.0,
-          "via_gap": 0.0,
-          "width": 0.0
-        }
-      ],
+      "diff_pair_dimensions": [],
       "drc_exclusions": [],
       "meta": {
         "version": 2
@@ -171,17 +165,8 @@
           "td_width_to_size_filter_ratio": 0.9
         }
       ],
-      "track_widths": [
-        0.0,
-        0.2,
-        0.25
-      ],
-      "via_dimensions": [
-        {
-          "diameter": 0.0,
-          "drill": 0.0
-        }
-      ],
+      "track_widths": [],
+      "via_dimensions": [],
       "zones_allow_external_fillets": false
     },
     "layer_presets": [],
@@ -407,7 +392,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "ADC_MCP_Module.kicad_pro",
+    "filename": "ADC_MainBoard.kicad_pro",
     "version": 1
   },
   "net_settings": {
@@ -484,7 +469,7 @@
   },
   "sheets": [
     [
-      "af487b5e-a3f1-4982-9322-f2a7f87ce403",
+      "89c9ff72-9916-4865-897e-a40a0c4dfe2f",
       ""
     ]
   ],
