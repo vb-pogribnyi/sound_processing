@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 `include "src/ADS8865Master.v"
-`include "src/Outputter.v"
+// `include "src/Outputter.v"
+`include "src/FSMC.v"
 `include "src/RunningMean.v"
 `include "src/MCP3461MAster.v"
 
@@ -45,8 +46,16 @@ module led(
      
     // Parallel output
     input wire i_OCLK,
-    output wire [7:0] o_OUTPUT,
-    output wire [7:0] o_OUTPUT2,
+
+    inout wire [4:0] o_FSMC_AD,
+    input wire o_FSMC_NE,
+    input wire o_FSMC_NOE,
+    input wire o_FSMC_NWE,
+    input wire o_FSMC_NADV,
+    input wire o_FSMC_CLK,
+    output wire o_FSMC_NWAIT,
+    // output wire [7:0] o_OUTPUT,
+    // output wire [7:0] o_OUTPUT2,
     output wire o_RDY,
      
      
@@ -152,7 +161,8 @@ module led(
     assign o_DBG5 = rdy;
     assign o_DBG12 = 0;
     //assign o_DBG12 = o_OUTPUT[2];
-    assign o_DBG13 = o_OUTPUT[3];
+    assign o_DBG13 = 0;
+    // assign o_DBG13 = o_OUTPUT[3];
      wire [31:0] var1;
      wire [31:0] mean1;
      wire [31:0] var2;
@@ -214,26 +224,44 @@ module led(
         .o_OUTPUT2(o_OUTPUT2), 
         .o_RDY(o_RDY)
     );*/
-    OutputterBuff #(.BUFF_DEPTH(4096), .CHUNK_SIZE(8))  out (
-        .i_OUT1(out_tst), 
+    // OutputterBuff #(.BUFF_DEPTH(4096), .CHUNK_SIZE(8))  out (
+    //     .i_OUT1(out_tst), 
         
-        .i_OUT2(out1), 
-        .i_OUT3(out1), 
-        .i_OUT4(out1), 
+    //     .i_OUT2(out1), 
+    //     .i_OUT3(out1), 
+    //     .i_OUT4(out1), 
         
-        //.i_OUT1(out1_tst), 
-        //.i_OUT2(out2_tst), 
-        //.i_OUT3(out3_tst), 
-        //.i_OUT4(out4_tst), 
-        .i_OCLK(i_OCLK), 
-        .i_CLK(clk_slow), 
-        .i_RDY(rdy), 
-      .i_STATE(state),
-        .i_DBG(sw34), 
-        .o_OUTPUT(o_OUTPUT),
-        .o_OUTPUT2(o_OUTPUT2), 
-        .o_RDY(o_RDY)
+    //     //.i_OUT1(out1_tst), 
+    //     //.i_OUT2(out2_tst), 
+    //     //.i_OUT3(out3_tst), 
+    //     //.i_OUT4(out4_tst), 
+    //     .i_OCLK(i_OCLK), 
+    //     .i_CLK(clk_slow), 
+    //     .i_RDY(rdy), 
+    //   .i_STATE(state),
+    //     .i_DBG(sw34), 
+    //     .o_OUTPUT(o_OUTPUT),
+    //     .o_OUTPUT2(o_OUTPUT2), 
+    //     .o_RDY(o_RDY)
+    // );
+	 assign o_RDY = 0;
+    
+    localparam LATENCY_CYCLES  = 2;
+    localparam WAIT_ACTIVE_LOW = 1;
+    FSMC #(
+        .LATENCY_CYCLES (LATENCY_CYCLES),
+        .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
+        .ACCESS_DELAY   (5)
+    ) outputter (
+        .fsmc_ad   (o_FSMC_AD),
+        .fsmc_ne   (o_FSMC_NE),
+        .fsmc_nadv (o_FSMC_NADV),
+        .fsmc_noe  (o_FSMC_NOE),
+        .fsmc_nwe  (o_FSMC_NWE),
+        .fsmc_clk  (o_FSMC_CLK),
+        .fsmc_nwait(o_FSMC_NWAIT)
     );
+
     Leds leds (
         .i_CLK(i_CLK),
         .i_SW1(i_SW2),
