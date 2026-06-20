@@ -247,7 +247,7 @@ module led(
 	 assign o_RDY = 0;
     
     localparam LATENCY_CYCLES  = 2;
-    localparam WAIT_ACTIVE_LOW = 1;
+    localparam WAIT_ACTIVE_LOW = 0;
     FSMC #(
         .LATENCY_CYCLES (LATENCY_CYCLES),
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
