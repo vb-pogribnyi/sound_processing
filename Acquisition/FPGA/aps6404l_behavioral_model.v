@@ -1,32 +1,34 @@
 // =====================================================================
 // aps6404l_behavioral_model.v
 //
-// Behavioral simulation model of the AP Memory APS6404L-3SQR QSPI PSRAM.
-// Implements only the SPI-mode subset used by PSRAM.v:
+// Behavioral model of APS6404L-3SQR QSPI PSRAM.
+// Supports:
+//   SPI mode (power-on default):
+//     0x66  Reset-Enable
+//     0x99  Reset
+//     0x35  Enter Quad Mode  → switches to QPI
+//   QPI mode (after 0x35):
+//     0x02  Write     : CMD(2) + ADDR(6) + DATA nibble-clocks
+//     0x0B  Fast Read : CMD(2) + ADDR(6) + 4 dummy + DATA nibble-clocks
 //
-//   0x66 / 0x99  Reset-Enable / Reset  (single-byte, no data phase)
-//   0x02         Write:     CMD(8) + ADDR(24) + DATA bytes until CE# rises
-//   0x0B         Fast Read: CMD(8) + ADDR(24) + 8 dummy clks + DATA bytes
-//
-// SPI Mode 0 (CPOL=0, CPHA=0): slave drives SO on falling SCLK,
-// master samples SO on rising SCLK.  All transfers are MSB-first.
-//
-// Verified against APS6404L-3SQR datasheet Rev 2.3, sections 8.5, 10.1, 10.2.
+// SIO bus: driven/sampled 4 bits per clock in QPI, 1 bit (SIO[0]) in SPI.
+// SPI mode 0: FPGA drives on falling SCLK, samples on rising SCLK.
 // =====================================================================
 
 `timescale 1ns/1ps
 
 module aps6404l_behavioral_model #(
-    parameter MEM_BYTES = 4096   // simulated memory (real chip is 8 MB)
+    parameter MEM_BYTES = 4096
 )(
-    input  wire sclk,
-    input  wire ce_n,
-    input  wire si,     // MOSI
-    output reg  so      // MISO  (1'bz when not selected)
+    input  wire       sclk,
+    input  wire       ce_n,
+    input  wire [3:0] sio_in,    // what the FPGA is driving onto SIO
+    output reg  [3:0] sio_out    // what the chip drives onto SIO (High-Z when not reading)
 );
 
     reg [7:0] mem [0:MEM_BYTES-1];
 
+    // FSM states (shared SPI/QPI)
     localparam S_IDLE  = 3'd0,
                S_CMD   = 3'd1,
                S_ADDR  = 3'd2,
@@ -35,149 +37,188 @@ module aps6404l_behavioral_model #(
                S_RDATA = 3'd5;
 
     reg [2:0]  state;
-    reg [7:0]  cmd_sr;      // command shift register
-    reg [23:0] addr_sr;     // address shift register (accumulates incoming bits)
-    reg [23:0] cur_addr;    // latched byte address for current transaction
-    reg [4:0]  bitcnt;      // down-counter: bits remaining in current phase (max 24)
-    reg [7:0]  wbyte_sr;    // write-data shift register
-    reg [7:0]  rdata_byte;  // output byte currently being serialised on SO
-    reg        is_read;     // 1 = Fast Read (0x0B), 0 = Write (0x02)
+    reg        qpi_mode;     // 0 = SPI, 1 = QPI
+
+    // Command / address accumulation
+    reg [7:0]  cmd_sr;
+    reg [23:0] addr_sr;
+    reg [23:0] cur_addr;
+    reg [4:0]  bitcnt;       // bits remaining (SPI CMD/ADDR phases)
+    reg [2:0]  nibcnt;       // nibbles remaining (QPI phases)
+
+    // Write data
+    reg [7:0]  wbyte_sr;
+    reg [2:0]  wbit;         // bits accumulated in current write byte (SPI)
+
+    // Read data
+    reg [7:0]  rdata_byte;
+    reg [1:0]  rnibble;      // nibbles output in current byte (0..1, QPI)
 
     integer i;
     initial begin
         for (i = 0; i < MEM_BYTES; i = i + 1)
             mem[i] = 8'h00;
         state      = S_IDLE;
-        so         = 1'bz;
-        is_read    = 1'b0;
+        qpi_mode   = 1'b0;
+        sio_out    = 4'bz;
         cmd_sr     = 8'h00;
         addr_sr    = 24'h0;
         cur_addr   = 24'h0;
         bitcnt     = 5'd0;
+        nibcnt     = 3'd0;
         wbyte_sr   = 8'h00;
+        wbit       = 3'd0;
         rdata_byte = 8'h00;
+        rnibble    = 2'd0;
     end
 
     // ---------------------------------------------------------------
-    // CE# falling: start of a new transaction
+    // CE# falling: start of transaction
     // ---------------------------------------------------------------
     always @(negedge ce_n) begin
-        state  <= S_CMD;
-        bitcnt <= 5'd8;
-        cmd_sr <= 8'h00;
+        state   <= S_CMD;
+        cmd_sr  <= 8'h00;
+        addr_sr <= 24'h0;
+        if (qpi_mode)
+            nibcnt <= 3'd2;   // 2 nibble-clocks for 8-bit cmd
+        else
+            bitcnt <= 5'd8;
     end
 
     // ---------------------------------------------------------------
-    // CE# rising: end of transaction, release SO (High-Z)
+    // CE# rising: end of transaction
     // ---------------------------------------------------------------
     always @(posedge ce_n) begin
-        state <= S_IDLE;
-        so    <= 1'bz;
+        state   <= S_IDLE;
+        sio_out <= 4'bz;
     end
 
     // ---------------------------------------------------------------
-    // SO output: driven on falling SCLK so the master can latch it on
-    // the next rising SCLK.
-    //
-    // bitcnt counts 8..1 within each output byte, so rdata_byte[bitcnt-1]
-    // maps to bit7 (MSB) .. bit0 (LSB) — MSB-first per the datasheet.
+    // Drive SIO on falling SCLK (read data phase only)
     // ---------------------------------------------------------------
     always @(negedge sclk) begin
-        if (!ce_n && state == S_RDATA)
-            so <= rdata_byte[bitcnt - 1];
+        if (!ce_n && state == S_RDATA) begin
+            if (qpi_mode) begin
+                sio_out <= (rnibble == 0) ? rdata_byte[7:4] : rdata_byte[3:0];
+                $display("[MODEL] negedge→sio_out=%H rnibble=%0d t=%0t",
+                         (rnibble==0)?rdata_byte[7:4]:rdata_byte[3:0], rnibble, $time);
+            end else begin
+                sio_out <= {3'b0, rdata_byte[bitcnt - 1]};
+            end
+        end else if (!ce_n) begin
+            $display("[MODEL] negedge sclk: state=%0d (not RDATA) qpi=%0b t=%0t", state, qpi_mode, $time);
+        end
     end
 
     // ---------------------------------------------------------------
-    // Main receive / protocol FSM: advances on rising SCLK
+    // Main FSM: advances on rising SCLK
     // ---------------------------------------------------------------
     always @(posedge sclk) begin
         if (!ce_n) begin
-            case (state)
+            if (qpi_mode) begin
+                // ---- QPI mode: 4 bits per clock ------------------
+                case (state)
 
-                // ---- Command byte (8 bits, MSB first) ---------------
-                S_CMD: begin
-                    cmd_sr <= {cmd_sr[6:0], si};
-                    if (bitcnt == 5'd1) begin
-                        case ({cmd_sr[6:0], si})
-                            8'h02: begin
-                                is_read <= 1'b0;
-                                state   <= S_ADDR;
-                                bitcnt  <= 5'd24;
-                            end
-                            8'h0B: begin
-                                is_read <= 1'b1;
-                                state   <= S_ADDR;
-                                bitcnt  <= 5'd24;
-                            end
-                            default: begin
-                                // 0x66 / 0x99 / others: single-byte command,
-                                // CE# will go high to end it; nothing more to do.
-                                state <= S_IDLE;
-                            end
-                        endcase
-                    end else
-                        bitcnt <= bitcnt - 5'd1;
-                end
-
-                // ---- Address (24 bits, MSB first) -------------------
-                S_ADDR: begin
-                    addr_sr <= {addr_sr[22:0], si};
-                    if (bitcnt == 5'd1) begin
-                        // Latch the complete 24-bit address.
-                        // addr_sr holds bits[23:1] from previous posedges;
-                        // si is bit[0] on this (the 24th) posedge.
-                        cur_addr <= {addr_sr[22:0], si};
-                        if (is_read) begin
-                            state  <= S_DUMMY;
-                            bitcnt <= 5'd8;    // 8 wait cycles per datasheet §10.1
-                        end else begin
-                            state    <= S_WDATA;
-                            bitcnt   <= 5'd8;
-                            wbyte_sr <= 8'h00;
+                    S_CMD: begin
+                        cmd_sr <= {cmd_sr[3:0], sio_in};
+                        nibcnt <= nibcnt - 1;
+                        if (nibcnt == 1) begin
+                            // command is complete: {cmd_sr[3:0], sio_in}
+                            case ({cmd_sr[3:0], sio_in})
+                                8'h02: begin
+                                    state  <= S_ADDR;
+                                    nibcnt <= 3'd6;
+                                    wbyte_sr <= 8'h00;
+                                end
+                                8'h0B: begin
+                                    state  <= S_ADDR;
+                                    nibcnt <= 3'd6;
+                                end
+                                default: state <= S_IDLE;
+                            endcase
+                            cmd_sr <= {cmd_sr[3:0], sio_in};
                         end
-                    end else
-                        bitcnt <= bitcnt - 5'd1;
-                end
+                    end
 
-                // ---- 8 dummy clock cycles (Fast Read only) ----------
-                // Datasheet §10.1 Fig.7: 8 wait cycles before data out.
-                // During this phase SI is don't-care; SO is not yet driven.
-                S_DUMMY: begin
-                    if (bitcnt == 5'd1) begin
-                        rdata_byte <= mem[cur_addr];   // pre-load first output byte
-                        state      <= S_RDATA;
-                        bitcnt     <= 5'd8;
-                    end else
-                        bitcnt <= bitcnt - 5'd1;
-                end
+                    S_ADDR: begin
+                        addr_sr <= {addr_sr[19:0], sio_in};
+                        nibcnt  <= nibcnt - 1;
+                        if (nibcnt == 1) begin
+                            cur_addr <= {addr_sr[19:0], sio_in};
+                            if (cmd_sr == 8'h0B) begin
+                                state  <= S_DUMMY;
+                                nibcnt <= 3'd4;   // 4 dummy nibble-clocks
+                            end else begin
+                                state  <= S_WDATA;
+                                nibcnt <= 3'd2;
+                                wbyte_sr <= 8'h00;
+                            end
+                        end
+                    end
 
-                // ---- Write data: bytes in, address auto-increments ---
-                S_WDATA: begin
-                    wbyte_sr <= {wbyte_sr[6:0], si};
-                    if (bitcnt == 5'd1) begin
-                        mem[cur_addr] <= {wbyte_sr[6:0], si};
-                        cur_addr      <= cur_addr + 24'd1;
-                        bitcnt        <= 5'd8;
-                        wbyte_sr      <= 8'h00;
-                    end else
-                        bitcnt <= bitcnt - 5'd1;
-                end
+                    S_DUMMY: begin
+                        nibcnt <= nibcnt - 1;
+                        if (nibcnt == 1) begin
+                            rdata_byte <= mem[cur_addr];
+                            $display("[MODEL] S_DUMMY→S_RDATA cur_addr=%0d mem=%02H t=%0t", cur_addr, mem[cur_addr], $time);
+                            rnibble    <= 2'd0;
+                            state      <= S_RDATA;
+                            nibcnt     <= 3'd2;
+                        end
+                    end
 
-                // ---- Read data: SO driven by the negedge block above -
-                // On each byte boundary: advance address, pre-load next byte.
-                S_RDATA: begin
-                    if (bitcnt == 5'd1) begin
-                        cur_addr   <= cur_addr + 24'd1;
-                        // cur_addr hasn't updated yet (non-blocking), so
-                        // cur_addr+1 is the next byte address.
-                        rdata_byte <= mem[cur_addr + 24'd1];
-                        bitcnt     <= 5'd8;
-                    end else
-                        bitcnt <= bitcnt - 5'd1;
-                end
+                    S_WDATA: begin
+                        // Each clock = one nibble; two nibbles = one byte
+                        if (nibcnt == 2) begin
+                            wbyte_sr <= {sio_in, 4'h0};
+                            nibcnt   <= 3'd1;
+                        end else begin
+                            mem[cur_addr] <= {wbyte_sr[7:4], sio_in};
+                            $display("[MODEL] Write mem[%0d]=%02H t=%0t", cur_addr, {wbyte_sr[7:4], sio_in}, $time);
+                            cur_addr <= cur_addr + 1;
+                            wbyte_sr <= 8'h00;
+                            nibcnt   <= 3'd2;
+                        end
+                    end
 
-                default: ;   // S_IDLE: no action
-            endcase
+                    S_RDATA: begin
+                        // rnibble tracks which nibble of rdata_byte we just drove
+                        if (rnibble == 1) begin
+                            // finished this byte
+                            cur_addr   <= cur_addr + 1;
+                            rdata_byte <= mem[cur_addr + 1];
+                            rnibble    <= 2'd0;
+                        end else begin
+                            rnibble <= rnibble + 1;
+                        end
+                    end
+
+                    default: ;
+                endcase
+
+            end else begin
+                // ---- SPI mode: 1 bit per clock (SIO[0]) ----------
+                case (state)
+
+                    S_CMD: begin
+                        cmd_sr <= {cmd_sr[6:0], sio_in[0]};
+                        if (bitcnt == 5'd1) begin
+                            case ({cmd_sr[6:0], sio_in[0]})
+                                8'h35: begin
+                                    // Enter Quad Mode – CE# will go high, nothing more
+                                    qpi_mode <= 1'b1;
+                                    state    <= S_IDLE;
+                                end
+                                8'h66, 8'h99: state <= S_IDLE;  // single-byte cmds
+                                default:      state <= S_IDLE;
+                            endcase
+                        end else
+                            bitcnt <= bitcnt - 5'd1;
+                    end
+
+                    default: ;  // SPI data ops not used after QPI enable
+                endcase
+            end
         end
     end
 
