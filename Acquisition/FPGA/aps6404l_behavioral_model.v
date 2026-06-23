@@ -98,15 +98,10 @@ module aps6404l_behavioral_model #(
     // ---------------------------------------------------------------
     always @(negedge sclk) begin
         if (!ce_n && state == S_RDATA) begin
-            if (qpi_mode) begin
+            if (qpi_mode)
                 sio_out <= (rnibble == 0) ? rdata_byte[7:4] : rdata_byte[3:0];
-                $display("[MODEL] negedge→sio_out=%H rnibble=%0d t=%0t",
-                         (rnibble==0)?rdata_byte[7:4]:rdata_byte[3:0], rnibble, $time);
-            end else begin
+            else
                 sio_out <= {3'b0, rdata_byte[bitcnt - 1]};
-            end
-        end else if (!ce_n) begin
-            $display("[MODEL] negedge sclk: state=%0d (not RDATA) qpi=%0b t=%0t", state, qpi_mode, $time);
         end
     end
 
@@ -160,7 +155,6 @@ module aps6404l_behavioral_model #(
                         nibcnt <= nibcnt - 1;
                         if (nibcnt == 1) begin
                             rdata_byte <= mem[cur_addr];
-                            $display("[MODEL] S_DUMMY→S_RDATA cur_addr=%0d mem=%02H t=%0t", cur_addr, mem[cur_addr], $time);
                             rnibble    <= 2'd0;
                             state      <= S_RDATA;
                             nibcnt     <= 3'd2;
@@ -174,7 +168,6 @@ module aps6404l_behavioral_model #(
                             nibcnt   <= 3'd1;
                         end else begin
                             mem[cur_addr] <= {wbyte_sr[7:4], sio_in};
-                            $display("[MODEL] Write mem[%0d]=%02H t=%0t", cur_addr, {wbyte_sr[7:4], sio_in}, $time);
                             cur_addr <= cur_addr + 1;
                             wbyte_sr <= 8'h00;
                             nibcnt   <= 3'd2;

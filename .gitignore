@@ -16,6 +16,7 @@
 *.out
 *.gtkw
 *.lck
+*.vvp
 \#auto_saved_files\#
 ./processing
 outputs

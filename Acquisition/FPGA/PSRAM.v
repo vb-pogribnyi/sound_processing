@@ -257,28 +257,32 @@ always @(posedge sys_clk or negedge reset_n) begin
         end
 
         S_QPI_EN: begin
-            if (bit_cnt == 0) begin
-                cmd_sr       <= 8'h35;
-                psram_ce_n   <= 0;
-                psram_sio_oe <= 1;
-                bit_cnt      <= 8;
-            end
-            if (sclk_en) begin
-                if (!sclk_phase) begin
-                    psram_sclk    <= 0;
-                    psram_sio_out <= {3'b0, cmd_sr[7]};
-                    cmd_sr        <= {cmd_sr[6:0], 1'b0};
-                    sclk_phase    <= 1;
-                end else begin
-                    psram_sclk <= 1;
-                    sclk_phase <= 0;
-                    bit_cnt    <= bit_cnt - 1;
-                    if (bit_cnt == 1) begin
-                        psram_ce_n <= 1;
-                        psram_sclk <= 0;
-                        qpi_mode   <= 1;
-                        state      <= S_IDLE;
-                        bit_cnt    <= 0;
+            psram_sio_oe <= 1;
+            if (bit_cnt == 0 && !psram_ce_n) begin
+                // 8th rising edge just completed with sclk=1, ce_n=0.
+                // De-assert CE# now (sclk stays high; S_IDLE will pull it low).
+                // This guarantees the model saw the genuine posedge and set qpi_mode.
+                psram_ce_n <= 1;
+                qpi_mode   <= 1;
+                state      <= S_IDLE;
+            end else begin
+                if (bit_cnt == 0) begin   // initial entry
+                    cmd_sr     <= 8'h35;
+                    psram_ce_n <= 0;
+                    bit_cnt    <= 8;
+                end
+                if (sclk_en) begin
+                    if (!sclk_phase) begin
+                        psram_sclk    <= 0;
+                        psram_sio_out <= {3'b0, cmd_sr[7]};
+                        cmd_sr        <= {cmd_sr[6:0], 1'b0};
+                        sclk_phase    <= 1;
+                    end else begin
+                        psram_sclk <= 1;   // genuine rising edge - no override
+                        sclk_phase <= 0;
+                        bit_cnt    <= bit_cnt - 1;
+                        // Do NOT touch psram_sclk or psram_ce_n here;
+                        // when bit_cnt reaches 0 the top branch fires next clock.
                     end
                 end
             end
