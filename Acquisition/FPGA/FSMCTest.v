@@ -1,201 +1,86 @@
 // =====================================================================
-// tb_fsmc_muxed_burst_psram.v
+// tb_write_basic.v - basic FSMC write -> FIFO push, two words back-to-back
 //
-// Self-checking testbench for fsmc_muxed_burst_psram.v.
-// Acts as the STM32F407 FSMC master: drives the address phase via NADV,
-// then either pulses NWE (write) or asserts NOE + clocks FSMC_CLK with
-// NWAIT polling (burst read).
+// Writes two 16-bit words via 4 nibble writes each (addr 0,1,2,3), then
+// reads both back to confirm they landed in the FIFO in the right order
+// with the right values. Focus of this waveform: nibble accumulation
+// timing on NWE, and the push trigger on the write to address 3.
 //
-// Run with Icarus Verilog:
-//   iverilog -o sim fsmc_muxed_burst_psram.v tb_fsmc_muxed_burst_psram.v
-//   vvp sim
-//   gtkwave tb_fsmc_muxed_burst_psram.vcd   (optional waveform)
+// Run:
+//   iverilog -o sim_write_basic tb_write_basic.v FSMC.v PSRAM.v aps6404l_behavioral_model.v
+//   vvp sim_write_basic
+//   gtkwave wave_write_basic.vcd
 // =====================================================================
-
 `timescale 1ns/1ps
 
-module tb_fsmc_muxed_burst_psram;
+module tb_write_basic;
 
-    localparam LATENCY_CYCLES  = 2;
-    localparam WAIT_ACTIVE_LOW = 1;
-    localparam CLK_PERIOD      = 20;  // ns => 50 MHz FSMC_CLK
+    localparam FSMC_CLK_HALF_PERIOD = 11;  // ~23 ns period (~43 MHz), arbitrary
+    localparam SYS_CLK_HALF_PERIOD  = 5;   // 10 ns period (100 MHz), arbitrary, async to fsmc_clk
+    localparam BFM_WAIT_ACTIVE_LOW  = 0;   // must match FSMC's WAIT_ACTIVE_LOW below
 
-    // ---- bus signals (TB is the master) ----
-    reg  [7:0] ad_drive;
-    reg        ad_oe;      // 1 = TB drives FSMC_AD
-    reg        ne, nadv, noe, nwe, clk;
+    `include "fsmc_tb_common.vh"
 
-    wire [7:0] fsmc_ad    = ad_oe ? ad_drive : 8'bz;
-    wire       fsmc_nwait;
-
-    integer pass_count = 0;
-    integer fail_count = 0;
-
-    // ---- DUT ----
     FSMC #(
-        .LATENCY_CYCLES (LATENCY_CYCLES),
-        .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
-        .ACCESS_DELAY   (5)
-    ) dut (
-        .fsmc_ad   (fsmc_ad),
-        .fsmc_ne   (ne),
-        .fsmc_nadv (nadv),
-        .fsmc_noe  (noe),
-        .fsmc_nwe  (nwe),
-        .fsmc_clk  (clk),
-        .fsmc_nwait(fsmc_nwait)
+        .WAIT_ACTIVE_LOW   (BFM_WAIT_ACTIVE_LOW),
+        .PSRAM_CLK_DIV     (2),
+        .PSRAM_SYS_CLK_MHZ (1)    // shrunk for a fast/clean simulation - see FSMC.v header note
+    ) dut_fsmc (
+        .fsmc_ad    (fsmc_ad),
+        .fsmc_ne    (ne),
+        .fsmc_nadv  (nadv),
+        .fsmc_noe   (noe),
+        .fsmc_nwe   (nwe),
+        .fsmc_clk   (fsmc_clk),
+        .fsmc_nwait (fsmc_nwait),
+        .sys_clk    (sys_clk),
+        .reset_n    (reset_n),
+        .psram_sclk (psram_sclk),
+        .psram_ce_n (psram_ce_n),
+        .psram_si   (psram_si),
+        .psram_so   (psram_so)
     );
 
-    // free-running clock
-    initial clk = 0;
-    always #(CLK_PERIOD/2) clk = ~clk;
+    aps6404l_behavioral_model dut_psram_chip (
+        .sclk (psram_sclk),
+        .ce_n (psram_ce_n),
+        .si   (psram_si),
+        .so   (psram_so)
+    );
 
-    // ---- reference model ----
-    function [7:0] expected_byte;
-        input [7:0] a;
-        begin
-            expected_byte = {a[3:0], a[7:4]};
-        end
-    endfunction
-
-    // ---- capture buffer ----
-    reg [7:0] rd_data [0:63];
-
-    // ---- BFM tasks ----
-
-    // Address phase common to reads and writes
-    task drive_address;
-        input [7:0] address;
-        begin
-            ad_drive = address;
-            ad_oe    = 1'b1;
-            ne       = 1'b0;
-            nadv     = 1'b0;
-            #15;            // address setup time
-            nadv     = 1'b1;
-            #2;
-        end
-    endtask
-
-    // Burst-read `length` bytes from `start_addr` into rd_data[]
-    task burst_read;
-        input  [7:0]  start_addr;
-        input  integer length;
-        integer i;
-        begin
-            drive_address(start_addr);
-            ad_oe = 1'b0;   // release bus — DUT drives it from now on
-            noe   = 1'b0;
-
-            i = 0;
-            while (i < length) begin
-                @(posedge clk);
-                #7;         // wait past ACCESS_DELAY for signals to settle
-                if (fsmc_nwait === (WAIT_ACTIVE_LOW ? 1'b1 : 1'b0)) begin
-                    rd_data[i] = fsmc_ad;
-                    i = i + 1;
-                end
-                // NWAIT says "wait" — poll again next clock
-            end
-
-            noe = 1'b1;
-            ne  = 1'b1;
-            #10;
-        end
-    endtask
-
-    task burst_write;
-        input [7:0] address;
-        input [7:0] wdata;
-        begin
-            drive_address(address);
-            ad_drive = wdata;
-            nwe      = 1'b0;
-            #20;
-            nwe      = 1'b1;
-            #10;
-            ad_oe    = 1'b0;
-            ne       = 1'b1;
-            #10;
-        end
-    endtask
-
-    task check_burst;
-        input [7:0]  start_addr;
-        input integer length;
-        integer   i;
-        reg [7:0] cur, exp;
-        reg       ok;
-        begin
-            burst_read(start_addr, length);
-            ok = 1'b1;
-            for (i = 0; i < length; i = i + 1) begin
-                cur = start_addr + i;           // 8-bit: wraps naturally
-                exp = expected_byte(cur);
-                if (rd_data[i] !== exp) begin
-                    ok = 1'b0;
-                    $display("  FAIL beat %0d  addr=0x%02h  expected=0x%02h  got=0x%02h",
-                             i, cur, exp, rd_data[i]);
-                end
-            end
-            if (ok) begin
-                pass_count = pass_count + 1;
-                $display("PASS  start=0x%02h len=%0d", start_addr, length);
-            end else begin
-                fail_count = fail_count + 1;
-                $display("FAIL  start=0x%02h len=%0d", start_addr, length);
-            end
-        end
-    endtask
-
-    integer k;
-    reg [7:0] rnd_addr;
+    reg [15:0] result;
 
     initial begin
-        $dumpfile("tb_fsmc_muxed_burst_psram.vcd");
-        $dumpvars(0, tb_fsmc_muxed_burst_psram);
+        $dumpfile("wave_write_basic.vcd");
+        $dumpvars(0, tb_write_basic);
 
         ad_drive = 0; ad_oe = 0;
         ne = 1; nadv = 1; noe = 1; nwe = 1;
+        reset_n = 1'b0;
         #50;
+        reset_n = 1'b1;
 
         $display("=================================================");
-        $display(" Single-byte reads");
+        $display(" WRITE BASIC: two words, back to back");
         $display("=================================================");
-        check_burst(8'hAB, 1);   // 0xAB -> expect 0xBA
-        check_burst(8'h00, 1);
-        check_burst(8'hFF, 1);
-        check_burst(8'h12, 1);
-        check_burst(8'hCD, 1);
+
+        write_word(16'hA5C3);
+        #6000;   // covers psram_fifo power-up/reset + first push round-trip
+
+        write_word(16'h0F0F);
+        #3000;   // covers the second push round-trip
+
+        read_word_burst(result);
+        check_word(result, 16'hA5C3, 1);
+        #3000;
+
+        read_word_burst(result);
+        check_word(result, 16'h0F0F, 2);
+        #3000;
 
         $display("=================================================");
-        $display(" True bursts");
+        $display(" done");
         $display("=================================================");
-        check_burst(8'h20, 8);
-        check_burst(8'hFC, 8);   // wraps past 0xFF -> 0x00
-
-        $display("=================================================");
-        $display(" Randomised burst reads");
-        $display("=================================================");
-        for (k = 0; k < 10; k = k + 1) begin
-            rnd_addr = $random;
-            check_burst(rnd_addr, 4);
-        end
-
-        $display("=================================================");
-        $display(" Write test (read-back must not change)");
-        $display("=================================================");
-        burst_write(8'hAB, 8'h55);
-        check_burst(8'hAB, 1);   // must still return 0xBA
-
-        $display("=================================================");
-        $display(" Summary: %0d passed, %0d failed", pass_count, fail_count);
-        $display("=================================================");
-        if (fail_count == 0)
-            $display("ALL TESTS PASSED");
-        else
-            $display("SOME TESTS FAILED");
-
         $finish;
     end
 

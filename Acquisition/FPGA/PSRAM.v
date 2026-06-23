@@ -32,7 +32,7 @@
 // actual system clock frequency.
 // =============================================================================
 
-module psram_fifo #(
+module PSRAM #(
     parameter nADC        = 4,          // number of 16-bit ADC channels
     parameter CLK_DIV     = 4,          // sys_clk half-periods per sclk half-period
     parameter SYS_CLK_MHZ = 50,        // system clock in MHz (for tPU calculation)
