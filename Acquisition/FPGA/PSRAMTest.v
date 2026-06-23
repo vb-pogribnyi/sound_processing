@@ -51,9 +51,7 @@ wire                  is_valid;
 // QSPI bus wires between DUT and chip model
 wire        psram_sclk;
 wire        psram_ce_n;
-wire [3:0]  psram_sio_out;
-wire [3:0]  psram_sio_in;
-wire        psram_sio_oe;
+wire [3:0]  psram_sio;   // shared bidirectional SIO[3:0]
 
 // ---------------------------------------------------------------------------
 // DUT: PSRAM controller
@@ -76,29 +74,21 @@ PSRAM #(
     .is_valid    (is_valid),
     .psram_sclk  (psram_sclk),
     .psram_ce_n  (psram_ce_n),
-    .psram_sio_out(psram_sio_out),
-    .psram_sio_in (psram_sio_in),
-    .psram_sio_oe (psram_sio_oe)
+    .psram_sio   (psram_sio)
 );
 
 // ---------------------------------------------------------------------------
 // Chip model: APS6404L behavioral model
-// SIO bus: when FPGA drives (oe=1) model sees psram_sio_out,
-//          when chip drives (oe=0) FPGA sees model's sio_out.
+// Both PSRAM.v and the model share the same psram_sio[3:0] wire.
+// Tristate arbitration is inside each module via internal sio_oe logic.
 // ---------------------------------------------------------------------------
-wire [3:0] model_sio_out;
-
 aps6404l_behavioral_model #(
     .MEM_BYTES (4096)
 ) psram_model (
     .sclk    (psram_sclk),
     .ce_n    (psram_ce_n),
-    .sio_in  (psram_sio_out),   // model always sees what FPGA drives
-    .sio_out (model_sio_out)
+    .sio     (psram_sio)
 );
-
-// FPGA samples model output when chip is driving (oe=0)
-assign psram_sio_in = psram_sio_oe ? 4'bz : model_sio_out;
 
 // ---------------------------------------------------------------------------
 // Helper task: issue one write and wait for it to complete

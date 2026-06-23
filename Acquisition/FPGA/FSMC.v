@@ -126,10 +126,12 @@ module FSMC #(
     input  wire        reset_n,   // async active-low reset, shared with psram_fifo
 
     // ---- APS6404L QSPI PSRAM pins (passed straight through) ----
-    output wire         psram_sclk,
-    output wire         psram_ce_n,
-    output wire         psram_si,
-    input  wire         psram_so
+    output wire        psram_sclk,
+    output wire        psram_ce_n,
+    inout  wire [3:0]  psram_sio,   // SIO[3:0] bidirectional — matches IC pins
+
+    // ---- status ----
+    output wire        psram_is_valid  // 1 after PSRAM self-test passes
 );
 
     // ---------------------------------------------------------------
@@ -175,6 +177,8 @@ module FSMC #(
     wire [15:0] psram_data_out;
     wire        psram_fifo_full;
     wire        psram_fifo_empty;
+    wire        psram_valid_int;
+    assign psram_is_valid = psram_valid_int;
 
     reg data_valid_tog_sysclk;
     always @(posedge sys_clk or negedge reset_n) begin
@@ -399,10 +403,10 @@ module FSMC #(
         .data_valid  (psram_data_valid),
         .fifo_full   (psram_fifo_full),
         .fifo_empty  (psram_fifo_empty),
+        .is_valid    (psram_valid_int),
         .psram_sclk  (psram_sclk),
         .psram_ce_n  (psram_ce_n),
-        .psram_si    (psram_si),
-        .psram_so    (psram_so)
+        .psram_sio   (psram_sio)
     );
 
 endmodule

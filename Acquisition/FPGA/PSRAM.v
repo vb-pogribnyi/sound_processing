@@ -11,10 +11,12 @@
 //   0x02  Write     : CMD(2) + ADDR(6) + DATA(ENTRY_BITS/4) nibble-clocks
 //   0x0B  Fast Read : CMD(2) + ADDR(6) + 4 dummy + DATA(ENTRY_BITS/4) nibble-clocks
 //
-// SIO bus ports (connect to external tristate buffer on real FPGA):
-//   psram_sio_out  – nibble FPGA drives onto SIO[3:0]
-//   psram_sio_in   – nibble FPGA samples from SIO[3:0]
-//   psram_sio_oe   – 1 = FPGA is driving, 0 = chip is driving (read data phase)
+// Physical PSRAM pins:
+//   psram_sclk  – SCLK
+//   psram_ce_n  – CE# (active low)
+//   psram_sio   – SIO[3:0] bidirectional bus (matches IC pins SI/SIO[0..3])
+//
+// FPGA tristate control is internal: psram_sio_oe (1=FPGA drives, 0=chip drives).
 // =============================================================================
 
 `timescale 1ns/1ps
@@ -39,10 +41,13 @@ module PSRAM #(
 
     output reg                    psram_sclk,
     output reg                    psram_ce_n,
-    output reg  [3:0]             psram_sio_out,
-    input  wire [3:0]             psram_sio_in,
-    output reg                    psram_sio_oe
+    inout  wire [3:0]             psram_sio   // bidirectional SIO[3:0] — matches IC pins
 );
+
+// Internal tristate control for the SIO bus
+reg [3:0] psram_sio_out;
+reg       psram_sio_oe;
+assign psram_sio = psram_sio_oe ? psram_sio_out : 4'bz;
 
 // ---------------------------------------------------------------------------
 // Derived parameters
@@ -475,7 +480,7 @@ always @(posedge sys_clk or negedge reset_n) begin
                     sclk_phase <= 1;
                 end else begin
                     psram_sclk <= 1;
-                    data_sr    <= {data_sr[ENTRY_BITS-5:0], psram_sio_in};
+                    data_sr    <= {data_sr[ENTRY_BITS-5:0], psram_sio};
                     sclk_phase <= 0;
                     bit_cnt    <= bit_cnt - 1;
                     if (bit_cnt == 1)

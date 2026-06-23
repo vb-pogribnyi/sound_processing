@@ -22,9 +22,13 @@ module aps6404l_behavioral_model #(
 )(
     input  wire       sclk,
     input  wire       ce_n,
-    input  wire [3:0] sio_in,    // what the FPGA is driving onto SIO
-    output reg  [3:0] sio_out    // what the chip drives onto SIO (High-Z when not reading)
+    inout  wire [3:0] sio        // bidirectional SIO[3:0] — matches IC pins SI/SIO[0..3]
 );
+
+    // Internal tristate: chip drives sio only during read data phase
+    reg [3:0] sio_drive;
+    reg       sio_drive_en;
+    assign sio = sio_drive_en ? sio_drive : 4'bz;
 
     reg [7:0] mem [0:MEM_BYTES-1];
 
@@ -59,8 +63,9 @@ module aps6404l_behavioral_model #(
         for (i = 0; i < MEM_BYTES; i = i + 1)
             mem[i] = 8'h00;
         state      = S_IDLE;
-        qpi_mode   = 1'b0;
-        sio_out    = 4'bz;
+        qpi_mode      = 1'b0;
+        sio_drive     = 4'h0;
+        sio_drive_en  = 1'b0;
         cmd_sr     = 8'h00;
         addr_sr    = 24'h0;
         cur_addr   = 24'h0;
@@ -89,8 +94,8 @@ module aps6404l_behavioral_model #(
     // CE# rising: end of transaction
     // ---------------------------------------------------------------
     always @(posedge ce_n) begin
-        state   <= S_IDLE;
-        sio_out <= 4'bz;
+        state        <= S_IDLE;
+        sio_drive_en <= 1'b0;
     end
 
     // ---------------------------------------------------------------
@@ -98,10 +103,13 @@ module aps6404l_behavioral_model #(
     // ---------------------------------------------------------------
     always @(negedge sclk) begin
         if (!ce_n && state == S_RDATA) begin
+            sio_drive_en <= 1'b1;
             if (qpi_mode)
-                sio_out <= (rnibble == 0) ? rdata_byte[7:4] : rdata_byte[3:0];
+                sio_drive <= (rnibble == 0) ? rdata_byte[7:4] : rdata_byte[3:0];
             else
-                sio_out <= {3'b0, rdata_byte[bitcnt - 1]};
+                sio_drive <= {3'b0, rdata_byte[bitcnt - 1]};
+        end else begin
+            sio_drive_en <= 1'b0;
         end
     end
 
@@ -115,11 +123,11 @@ module aps6404l_behavioral_model #(
                 case (state)
 
                     S_CMD: begin
-                        cmd_sr <= {cmd_sr[3:0], sio_in};
+                        cmd_sr <= {cmd_sr[3:0], sio};
                         nibcnt <= nibcnt - 1;
                         if (nibcnt == 1) begin
-                            // command is complete: {cmd_sr[3:0], sio_in}
-                            case ({cmd_sr[3:0], sio_in})
+                            // command is complete: {cmd_sr[3:0], sio}
+                            case ({cmd_sr[3:0], sio})
                                 8'h02: begin
                                     state  <= S_ADDR;
                                     nibcnt <= 3'd6;
@@ -131,15 +139,15 @@ module aps6404l_behavioral_model #(
                                 end
                                 default: state <= S_IDLE;
                             endcase
-                            cmd_sr <= {cmd_sr[3:0], sio_in};
+                            cmd_sr <= {cmd_sr[3:0], sio};
                         end
                     end
 
                     S_ADDR: begin
-                        addr_sr <= {addr_sr[19:0], sio_in};
+                        addr_sr <= {addr_sr[19:0], sio};
                         nibcnt  <= nibcnt - 1;
                         if (nibcnt == 1) begin
-                            cur_addr <= {addr_sr[19:0], sio_in};
+                            cur_addr <= {addr_sr[19:0], sio};
                             if (cmd_sr == 8'h0B) begin
                                 state  <= S_DUMMY;
                                 nibcnt <= 3'd4;   // 4 dummy nibble-clocks
@@ -164,10 +172,10 @@ module aps6404l_behavioral_model #(
                     S_WDATA: begin
                         // Each clock = one nibble; two nibbles = one byte
                         if (nibcnt == 2) begin
-                            wbyte_sr <= {sio_in, 4'h0};
+                            wbyte_sr <= {sio, 4'h0};
                             nibcnt   <= 3'd1;
                         end else begin
-                            mem[cur_addr] <= {wbyte_sr[7:4], sio_in};
+                            mem[cur_addr] <= {wbyte_sr[7:4], sio};
                             cur_addr <= cur_addr + 1;
                             wbyte_sr <= 8'h00;
                             nibcnt   <= 3'd2;
@@ -194,9 +202,9 @@ module aps6404l_behavioral_model #(
                 case (state)
 
                     S_CMD: begin
-                        cmd_sr <= {cmd_sr[6:0], sio_in[0]};
+                        cmd_sr <= {cmd_sr[6:0], sio[0]};
                         if (bitcnt == 5'd1) begin
-                            case ({cmd_sr[6:0], sio_in[0]})
+                            case ({cmd_sr[6:0], sio[0]})
                                 8'h35: begin
                                     // Enter Quad Mode – CE# will go high, nothing more
                                     qpi_mode <= 1'b1;
