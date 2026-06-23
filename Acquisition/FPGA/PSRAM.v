@@ -35,6 +35,7 @@ module PSRAM #(
     output reg                    data_valid,
     output wire                   fifo_full,
     output wire                   fifo_empty,
+    output reg                    is_valid,    // 1 after startup self-test passes
 
     output reg                    psram_sclk,
     output reg                    psram_ce_n,
@@ -62,6 +63,10 @@ localparam CNT_W   = $clog2(CNT_MAX + 1);
 // tRST = 50 ns min
 localparam RST_WAIT   = (SYS_CLK_MHZ / 20 < 3) ? 3 : SYS_CLK_MHZ / 20;
 localparam RST_WAIT_W = $clog2(RST_WAIT + 1);
+
+// Self-test: write/read a fixed pattern at an address beyond the FIFO region
+localparam [ENTRY_BITS-1:0] ST_PATTERN = {(ENTRY_BITS/8){8'hA5}};
+localparam [23:0]           ST_ADDR    = FIFO_DEPTH * ENTRY_BYTES;
 
 // ---------------------------------------------------------------------------
 // FSM states
@@ -112,6 +117,7 @@ reg sclk_en;
 reg sclk_phase;
 
 reg [RST_WAIT_W-1:0] rst_wait_cnt;
+reg                  st_mode;   // 1 while startup self-test is running
 
 // ---------------------------------------------------------------------------
 // Address from FIFO pointer
@@ -151,6 +157,8 @@ always @(posedge sys_clk or negedge reset_n) begin
         sclk_phase    <= 0;
         rst_wait_cnt  <= 0;
         qpi_mode      <= 0;
+        is_valid      <= 0;
+        st_mode       <= 0;
         state         <= S_PU_WAIT;
     end else begin
         data_valid <= 0;
@@ -262,9 +270,13 @@ always @(posedge sys_clk or negedge reset_n) begin
                 // 8th rising edge just completed with sclk=1, ce_n=0.
                 // De-assert CE# now (sclk stays high; S_IDLE will pull it low).
                 // This guarantees the model saw the genuine posedge and set qpi_mode.
-                psram_ce_n <= 1;
-                qpi_mode   <= 1;
-                state      <= S_IDLE;
+                psram_ce_n    <= 1;
+                qpi_mode      <= 1;
+                // Kick off startup self-test: write ST_PATTERN, then read back.
+                st_mode       <= 1;
+                wr_pending    <= 1;
+                wr_data_latch <= ST_PATTERN;
+                state         <= S_IDLE;
             end else begin
                 if (bit_cnt == 0) begin   // initial entry
                     cmd_sr     <= 8'h35;
@@ -295,18 +307,18 @@ always @(posedge sys_clk or negedge reset_n) begin
             psram_ce_n   <= 1;
             psram_sclk   <= 0;
             psram_sio_oe <= 1;
-            if (wr_pending && !fifo_full) begin
+            if (wr_pending && (st_mode || !fifo_full)) begin
                 wr_pending <= 0;
                 cmd_sr     <= 8'h02;
-                addr_sr    <= fifo_addr(wr_ptr);
+                addr_sr    <= st_mode ? ST_ADDR : fifo_addr(wr_ptr);
                 data_sr    <= wr_data_latch;
-                bit_cnt    <= 2;          // 2 nibble-clocks for CMD
+                bit_cnt    <= 2;
                 psram_ce_n <= 0;
                 state      <= S_WR_CMD;
-            end else if (rd_pending && !fifo_empty) begin
+            end else if (rd_pending && (st_mode || !fifo_empty)) begin
                 rd_pending <= 0;
                 cmd_sr     <= 8'h0B;
-                addr_sr    <= fifo_addr(rd_ptr);
+                addr_sr    <= st_mode ? ST_ADDR : fifo_addr(rd_ptr);
                 data_sr    <= 0;
                 bit_cnt    <= 2;
                 psram_ce_n <= 0;
@@ -377,14 +389,18 @@ always @(posedge sys_clk or negedge reset_n) begin
         end
 
         S_WR_DONE: begin
-            psram_sclk <= 0;
-            psram_ce_n <= 1;
+            psram_sclk    <= 0;
+            psram_ce_n    <= 1;
             psram_sio_out <= 0;
-            if (wr_ptr == FIFO_DEPTH - 1)
-                wr_ptr <= 0;
-            else
-                wr_ptr <= wr_ptr + 1;
-            count <= count + 1;
+            if (st_mode) begin
+                rd_pending <= 1;   // self-test: read back what we just wrote
+            end else begin
+                if (wr_ptr == FIFO_DEPTH - 1)
+                    wr_ptr <= 0;
+                else
+                    wr_ptr <= wr_ptr + 1;
+                count <= count + 1;
+            end
             state <= S_IDLE;
         end
 
@@ -472,13 +488,18 @@ always @(posedge sys_clk or negedge reset_n) begin
             psram_sclk   <= 0;
             psram_ce_n   <= 1;
             psram_sio_oe <= 1;
-            data_out     <= data_sr;
-            data_valid   <= 1;
-            if (rd_ptr == FIFO_DEPTH - 1)
-                rd_ptr <= 0;
-            else
-                rd_ptr <= rd_ptr + 1;
-            count <= count - 1;
+            if (st_mode) begin
+                is_valid <= (data_sr == ST_PATTERN);
+                st_mode  <= 0;
+            end else begin
+                data_out   <= data_sr;
+                data_valid <= 1;
+                if (rd_ptr == FIFO_DEPTH - 1)
+                    rd_ptr <= 0;
+                else
+                    rd_ptr <= rd_ptr + 1;
+                count <= count - 1;
+            end
             state <= S_IDLE;
         end
 

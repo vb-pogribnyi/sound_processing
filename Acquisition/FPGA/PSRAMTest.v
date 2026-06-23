@@ -46,6 +46,7 @@ wire [ENTRY_BITS-1:0] data_out;
 wire                  data_valid;
 wire                  fifo_full;
 wire                  fifo_empty;
+wire                  is_valid;
 
 // QSPI bus wires between DUT and chip model
 wire        psram_sclk;
@@ -72,6 +73,7 @@ PSRAM #(
     .data_valid  (data_valid),
     .fifo_full   (fifo_full),
     .fifo_empty  (fifo_empty),
+    .is_valid    (is_valid),
     .psram_sclk  (psram_sclk),
     .psram_ce_n  (psram_ce_n),
     .psram_sio_out(psram_sio_out),
@@ -189,9 +191,14 @@ initial begin
     // Wait for DUT power-up sequence (150 µs + RSTEN + RST + tRST)
     // 150 µs × 50 MHz = 7500 cycles.  Allow margin.
     // ----------------------------------------------------------------
-    $display("=== Waiting for PSRAM power-up sequence ... ===");
+    $display("=== Waiting for PSRAM power-up + self-test ... ===");
     repeat(8200) @(posedge sys_clk);
-    $display("=== Power-up done at t=%0t ===", $time);
+    $display("=== Power-up done at t=%0t  is_valid=%b ===", $time, is_valid);
+    if (!is_valid) begin
+        $display("  *** SELF-TEST FAILED: is_valid=0 ***");
+        test_fail = test_fail + 1;
+    end else
+        $display("  Self-test: PASS");
 
     // ----------------------------------------------------------------
     // TEST 1: Write 4 entries
@@ -254,6 +261,8 @@ initial begin
     if (!fifo_empty) test_fail = test_fail + 1;
 
     repeat(8200) @(posedge sys_clk);
+    $display("  is_valid after re-init=%b (expect 1)", is_valid);
+    if (!is_valid) test_fail = test_fail + 1;
 
     // ----------------------------------------------------------------
     // TEST 6: Single write + read after reset
