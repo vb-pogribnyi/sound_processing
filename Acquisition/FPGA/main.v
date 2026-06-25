@@ -264,8 +264,7 @@ module led(
     // localparam FIFO_DEPTH  = 8;    // small for fast simulation
     localparam PSRAM_CLK_DIV     = 4;
     localparam PSRAM_SYS_CLK_MHZ = 50;
-    localparam PSRAM_FIFO_DEPTH  = 8;
-    localparam MAX_WAIT          = 8000;
+    localparam PSRAM_FIFO_DEPTH  = 256;
     wire [nADC*16-1:0]     data_in;
     wire [nADC*16-1:0]     data_out;
     
@@ -277,8 +276,7 @@ module led(
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
         .PSRAM_CLK_DIV     (PSRAM_CLK_DIV),
         .PSRAM_SYS_CLK_MHZ (PSRAM_SYS_CLK_MHZ),
-        .PSRAM_FIFO_DEPTH  (PSRAM_FIFO_DEPTH),
-        .MAX_WAIT_CYCLES   (MAX_WAIT)
+        .PSRAM_FIFO_DEPTH  (PSRAM_FIFO_DEPTH)
     ) outputter (
         .fsmc_ad   (o_FSMC_AD),
         .fsmc_ne   (o_FSMC_NE),
