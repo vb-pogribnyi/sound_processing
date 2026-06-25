@@ -62,8 +62,7 @@ FSMC #(
     .WAIT_ACTIVE_LOW   (0),
     .PSRAM_CLK_DIV     (PSRAM_CLK_DIV),
     .PSRAM_SYS_CLK_MHZ (PSRAM_SYS_CLK_MHZ),
-    .PSRAM_FIFO_DEPTH  (PSRAM_FIFO_DEPTH),
-    .MAX_WAIT_CYCLES   (MAX_WAIT)
+    .PSRAM_FIFO_DEPTH  (PSRAM_FIFO_DEPTH)
 ) dut (
     .fsmc_ad       (fsmc_ad),
     .fsmc_ne       (fsmc_ne),
@@ -163,15 +162,29 @@ task fsmc_write_word;
 endtask
 
 // ---------------------------------------------------------------------------
-// Task: read one 16-bit word via 4 FSMC nibble reads (addr 0-3)
-// Stalls on NWAIT while PSRAM pop completes, then collects nibbles.
+// Task: read one 16-bit word via 4 FSMC nibble reads (addr 0-3).
+// Protocol: the FSMC bridge prefetches the next FIFO word in its sys_clk
+// domain, so firmware MUST poll the data-ready bit (status addr 0x4, bit3)
+// before reading. The addr-0 read then takes the prefetched word (short
+// bounded NWAIT) and signals the bridge to fetch the next.
 // ---------------------------------------------------------------------------
 task fsmc_read_word;
     output [15:0] rdata;
     integer timeout;
     reg [3:0] nibs [0:3];
+    reg [3:0] st;
     integer n;
     begin
+        // Poll data-ready (status bit3) before reading
+        st      = 4'h0;
+        timeout = 0;
+        while (st[3] !== 1'b1 && timeout < MAX_WAIT) begin
+            fsmc_read_status(st);
+            timeout = timeout + 1;
+        end
+        if (timeout >= MAX_WAIT)
+            $display("  *** DATA-READY TIMEOUT in read at t=%0t ***", $time);
+
         // NADV phase: latch address 0x0
         @(posedge fsmc_clk); #1;
         fsmc_ne   = 0;
@@ -213,7 +226,8 @@ endtask
 
 // ---------------------------------------------------------------------------
 // Task: read the status nibble from address 0x4 (no NWAIT stall).
-// Returns the raw 4-bit nibble: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid.
+// Returns the raw 4-bit nibble:
+//   bit0=fifo_empty, bit1=fifo_full, bit2=is_valid, bit3=data_ready.
 // ---------------------------------------------------------------------------
 task fsmc_read_status;
     output [3:0] stat;

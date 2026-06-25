@@ -47,33 +47,42 @@
 // in that order); the write to address 0x3 triggers the push of the
 // completed 16-bit word into the FIFO.
 //
-// READ: a read starting at address 0x0 triggers a pop from the FIFO and
-// STALLS the bus (via FSMC_NWAIT) until the popped word has actually
-// arrived from the real SPI PSRAM chip - this can take hundreds of
-// sys_clk cycles, much longer than the small fixed LATENCY_CYCLES used
-// for simple memory emulation. Addresses 0x1-0x3 (or address 0x0 read
-// again without 4 nibbles having been consumed first - not tracked,
-// see limitations below) just replay nibbles of the value already
-// fetched, with the modest LATENCY_CYCLES delay. Both a single 4-beat
-// burst (one address phase, four FSMC_CLK beats) and four separate
-// single-beat reads work correctly with this scheme.
+// READ: the FIFO word is PREFETCHED into a holding register by a small
+// engine running in the free-running sys_clk domain (see "PREFETCH
+// engine" below). A read of address 0x0 therefore does NOT wait for a
+// SPI round-trip - the word is already local, so it streams with only
+// the short, bounded LATENCY_CYCLES delay (same as the cached nibbles at
+// 0x1-0x3) and signals the engine to fetch the next word. Addresses
+// 0x1-0x3 replay the remaining nibbles of that same word. Both a single
+// 4-beat burst and four separate single-beat reads work.
+//
+// WHY prefetch instead of stalling: FSMC_CLK is GATED - it only toggles
+// during an active access, and on real silicon it does NOT advance while
+// the FPGA holds NWAIT asserted. An earlier design stalled at address
+// 0x0 (NWAIT) for the whole SPI round-trip; that DEADLOCKED the STM32
+// (the FSM that releases NWAIT is clocked by the very clock the STM32
+// stops). Prefetching removes the long stall entirely.
+//
+// FIRMWARE CONTRACT: poll the status register (address 0x4) bit3
+// (data-ready) before reading each word. Polling paces reads to prefetch
+// availability and keeps the data-ready synchronizer fresh across the
+// gated clock. Example:
+//     while (!(*(volatile uint8_t*)(BASE+4) & 0x8)) { }   // wait ready
+//     w  =  *(volatile uint8_t*)(BASE+0)        & 0xF;
+//     w |= (*(volatile uint8_t*)(BASE+1) & 0xF) << 4;
+//     w |= (*(volatile uint8_t*)(BASE+2) & 0xF) << 8;
+//     w |= (*(volatile uint8_t*)(BASE+3) & 0xF) << 12;
 //
 // -----------------------------------------------------------------------
 // Limitations / things to be aware of
 // -----------------------------------------------------------------------
-//  - If the FIFO is empty when address 0x0 is read, this module does
-//    NOT stall forever: it returns whatever was last latched into
-//    rd_holding (stale data) immediately. There is currently no way for
-//    firmware to distinguish "freshly popped" from "stale/no data" -
-//    if you need that, expose psram_fifo's fifo_empty flag at another
-//    address (not implemented here).
+//  - If firmware reads address 0x0 without a prefetched word ready
+//    (data-ready=0, i.e. FIFO was empty / it didn't poll first), the
+//    module returns stale rd_holding immediately rather than stalling.
+//    Always poll data-ready (status bit3) first.
 //  - If the FIFO is full when address 0x3 is written, psram_fifo's
-//    existing behaviour applies: the write is silently dropped. There
-//    is currently no status feedback for this either.
-//  - MAX_WAIT_CYCLES (see below) is a safety net so a stuck/failed SPI
-//    transaction can never hang the STM32 forever, but it should never
-//    actually be hit in normal operation - size it generously above the
-//    real worst-case pop latency for your CLK_DIV/SYS_CLK_MHZ settings.
+//    existing behaviour applies: the write is silently dropped. The
+//    status register's fifo_full bit (bit1) reports this.
 //  - This bridge assumes nADC=1 (one 16-bit word per FIFO entry) to
 //    match the four-address (0x0-0x3) scheme described above. It is
 //    hardcoded into the psram_fifo instantiation below; supporting more
@@ -87,8 +96,9 @@
 // =====================================================================
 
 module FSMC #(
-    parameter LATENCY_CYCLES  = 2,  // FSMC_CLK wait cycles before streaming a CACHED nibble
-                                     // (addresses 0x1-0x3, or 0x0 when the FIFO was empty)
+    parameter LATENCY_CYCLES  = 2,  // FSMC_CLK wait cycles before streaming a nibble
+                                     // (applies to all reads: prefetched word at 0x0,
+                                     //  cached nibbles 0x1-0x3, and status at 0x4)
     parameter WAIT_ACTIVE_LOW = 0,  // NWAIT polarity. Default 0 (active HIGH) per the
                                      // STM32F405/407 errata workaround (ES0182 sec. 2.3.2).
     parameter ACCESS_DELAY    = 5,  // ns internal delay on fsmc_ad / fsmc_nwait outputs (sim only)
@@ -97,16 +107,6 @@ module FSMC #(
                                      //     (HAL's FMC_WAIT_TIMING_BEFORE_WS).
                                      // 0 = NWAIT reports the *current* cycle's status
                                      //     (FMC_WAIT_TIMING_DURING_WS).
-    parameter MAX_WAIT_CYCLES  = 4096,
-                                     // Safety timeout (in fsmc_clk cycles) while waiting for a
-                                     // FIFO pop to complete. Must comfortably exceed the real
-                                     // worst-case SPI round-trip time for one 16-bit pop,
-                                     // converted into fsmc_clk cycles via your actual clock
-                                     // ratio. With the psram_fifo defaults (nADC=1, CLK_DIV=4)
-                                     // a pop takes roughly (8+24+8+16)*2*CLK_DIV = 448 sys_clk
-                                     // cycles - scale that by fsmc_clk's period vs sys_clk's and
-                                     // add margin. If this default proves too small for your
-                                     // configuration, increase it; do NOT decrease it casually.
     // Pass-through parameters for the instantiated psram_fifo
     parameter PSRAM_CLK_DIV     = 4,
     parameter PSRAM_SYS_CLK_MHZ = 50,
@@ -158,21 +158,17 @@ module FSMC #(
     // Clock-domain crossing: FSMC (fsmc_clk, bursty) <-> PSRAM FIFO (sys_clk, free-running)
     // =================================================================
 
-    // ---- Requests: fsmc_clk -> sys_clk, toggle-style (psram_fifo edge-detects internally) ----
-    reg rd_req_tog_fsmc, wr_req_tog_fsmc;
-    reg [1:0] rd_req_tog_sync, wr_req_tog_sync;
+    // ---- Write request: fsmc_clk -> sys_clk, toggle-style (psram_fifo edge-detects internally) ----
+    reg       wr_req_tog_fsmc;
+    reg [1:0] wr_req_tog_sync;
 
     always @(posedge sys_clk or negedge reset_n) begin
-        if (!reset_n) begin
-            rd_req_tog_sync <= 2'b00;
+        if (!reset_n)
             wr_req_tog_sync <= 2'b00;
-        end else begin
-            rd_req_tog_sync <= {rd_req_tog_sync[0], rd_req_tog_fsmc};
+        else
             wr_req_tog_sync <= {wr_req_tog_sync[0], wr_req_tog_fsmc};
-        end
     end
 
-    // ---- Completion: sys_clk single-cycle data_valid -> toggle -> fsmc_clk edge-detect ----
     wire        psram_data_valid;
     wire [15:0] psram_data_out;
     wire        psram_fifo_full;
@@ -180,51 +176,117 @@ module FSMC #(
     wire        psram_valid_int;
     assign psram_is_valid = psram_valid_int;
 
-    reg data_valid_tog_sysclk;
+    // =================================================================
+    // PREFETCH engine (sys_clk domain - always running)
+    //
+    // FSMC_CLK is GATED: it only toggles while an FSMC access is in
+    // flight, and (confirmed on hardware) it does NOT advance while the
+    // FPGA holds NWAIT asserted. So a read must never depend on an
+    // unbounded NWAIT stall that only an fsmc_clk edge can release - that
+    // path deadlocks (FSM stuck in a wait state, NWAIT held, CPU frozen).
+    //
+    // Instead we pop the FIFO EAGERLY here, in the free-running sys_clk
+    // domain, into a one-word holding register (pf_data). By the time
+    // firmware reads address 0 the word is already present, so the read
+    // takes only the short, bounded LATENCY path (proven to work) and
+    // never the long stall.
+    //
+    // Handshake:
+    //   pf_valid    : a prefetched word sits in pf_data, not yet consumed
+    //   pf_inflight : a pop has been issued, waiting on psram_data_valid
+    //   pf_rd_toggle: drives PSRAM.rd_toggle (same domain - no CDC needed)
+    //   consume     : the FSMC read FSM toggles rd_consume_tog_fsmc when it
+    //                 takes the word; edge-detected here to fetch the next.
+    //
+    // Firmware contract: poll the status register (address 0x4, bit3 =
+    // data-ready = pf_valid) before reading each word. Polling both paces
+    // the reads to prefetch availability AND keeps the fsmc-side
+    // synchronizer of pf_valid fresh across the gated clock.
+    // =================================================================
+    reg [15:0] pf_data;
+    reg        pf_valid;
+    reg        pf_inflight;
+    reg        pf_rd_toggle;
+
+    reg  [1:0] consume_tog_sync;
+    reg        consume_tog_sync_prev;
+    wire       consume_edge_sys = (consume_tog_sync[1] != consume_tog_sync_prev);
+
     always @(posedge sys_clk or negedge reset_n) begin
-        if (!reset_n)
-            data_valid_tog_sysclk <= 1'b0;
-        else if (psram_data_valid)
-            data_valid_tog_sysclk <= ~data_valid_tog_sysclk;
-    end
-
-    reg [1:0] data_valid_tog_sync_fsmc;
-    reg       data_valid_tog_sync_fsmc_prev;
-    reg       fifo_empty_sync1, fifo_empty_sync2;
-    reg       fifo_full_sync1,  fifo_full_sync2;
-    reg       is_valid_sync1,   is_valid_sync2;
-
-    always @(posedge fsmc_clk or negedge reset_n) begin
         if (!reset_n) begin
-            data_valid_tog_sync_fsmc      <= 2'b00;
-            data_valid_tog_sync_fsmc_prev <= 1'b0;
-            fifo_empty_sync1               <= 1'b1;  // assume empty at reset - it genuinely is,
-            fifo_empty_sync2               <= 1'b1;  // and "not empty" is the unsafe default here
-            fifo_full_sync1                <= 1'b0;
-            fifo_full_sync2                <= 1'b0;
-            is_valid_sync1                 <= 1'b0;
-            is_valid_sync2                 <= 1'b0;
+            pf_data               <= 16'h0000;
+            pf_valid              <= 1'b0;
+            pf_inflight           <= 1'b0;
+            pf_rd_toggle          <= 1'b0;
+            consume_tog_sync      <= 2'b00;
+            consume_tog_sync_prev <= 1'b0;
         end else begin
-            data_valid_tog_sync_fsmc      <= {data_valid_tog_sync_fsmc[0], data_valid_tog_sysclk};
-            data_valid_tog_sync_fsmc_prev <= data_valid_tog_sync_fsmc[1];
-            fifo_empty_sync1               <= psram_fifo_empty;
-            fifo_empty_sync2               <= fifo_empty_sync1;
-            fifo_full_sync1                <= psram_fifo_full;
-            fifo_full_sync2                <= fifo_full_sync1;
-            is_valid_sync1                 <= psram_valid_int;
-            is_valid_sync2                 <= is_valid_sync1;
+            consume_tog_sync      <= {consume_tog_sync[0], rd_consume_tog_fsmc};
+            consume_tog_sync_prev <= consume_tog_sync[1];
+
+            if (pf_inflight && psram_data_valid) begin
+                pf_data     <= psram_data_out;      // pop landed -> word ready
+                pf_valid    <= 1'b1;
+                pf_inflight <= 1'b0;
+            end else begin
+                if (pf_valid && consume_edge_sys)
+                    pf_valid <= 1'b0;               // FSMC took the word
+                // Issue the next pop one cycle after the slot frees. Uses the
+                // registered pf_valid, so a fresh consume this cycle defers the
+                // pop to next cycle - harmless.
+                if (!pf_valid && !pf_inflight && !psram_fifo_empty) begin
+                    pf_rd_toggle <= ~pf_rd_toggle;
+                    pf_inflight  <= 1'b1;
+                end
+            end
         end
     end
 
-    // A rising or falling edge on the synchronized toggle both count as
-    // "one completion happened" - that's all a toggle signal needs.
-    wire data_valid_edge_fsmc = (data_valid_tog_sync_fsmc[1] != data_valid_tog_sync_fsmc_prev);
-    wire fifo_empty_fsmc      = fifo_empty_sync2;
-    wire fifo_full_fsmc       = fifo_full_sync2;
-    wire is_valid_fsmc        = is_valid_sync2;
+    // ---- fifo_empty / fifo_full / is_valid: sys_clk pre-register + single fsmc_clk FF ----
+    // fsmc_clk is GATED - it only runs during burst reads. A pure 2-FF fsmc_clk synchronizer
+    // would freeze at reset defaults (empty=1, valid=0) for the entire period between
+    // transactions, causing the first read after any number of async writes to see a stale
+    // "FIFO empty" and skip the pop. Fix: register these quasi-static signals in the always-
+    // running sys_clk domain first so the value is current before the first fsmc_clk edge.
+    reg fifo_empty_pre, fifo_full_pre, is_valid_pre;
+    always @(posedge sys_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            fifo_empty_pre <= 1'b1;
+            fifo_full_pre  <= 1'b0;
+            is_valid_pre   <= 1'b0;
+        end else begin
+            fifo_empty_pre <= psram_fifo_empty;
+            fifo_full_pre  <= psram_fifo_full;
+            is_valid_pre   <= psram_valid_int;
+        end
+    end
 
-    // Status nibble at address 0x4: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid, bit3=0
-    wire [15:0] status_word = {12'b0, 1'b0, is_valid_fsmc, fifo_full_fsmc, fifo_empty_fsmc};
+    reg       fifo_empty_sync1;   // single fsmc_clk FF — source already sys_clk-stable
+    reg       fifo_full_sync1;
+    reg       is_valid_sync1;
+    reg       pf_valid_sync1;     // data-ready (pf_valid) crossed into fsmc_clk
+
+    always @(posedge fsmc_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            fifo_empty_sync1 <= 1'b1;
+            fifo_full_sync1  <= 1'b0;
+            is_valid_sync1   <= 1'b0;
+            pf_valid_sync1   <= 1'b0;
+        end else begin
+            fifo_empty_sync1 <= fifo_empty_pre;
+            fifo_full_sync1  <= fifo_full_pre;
+            is_valid_sync1   <= is_valid_pre;
+            pf_valid_sync1   <= pf_valid;
+        end
+    end
+
+    wire fifo_empty_fsmc = fifo_empty_sync1;
+    wire fifo_full_fsmc  = fifo_full_sync1;
+    wire is_valid_fsmc   = is_valid_sync1;
+    wire pf_valid_fsmc   = pf_valid_sync1;
+
+    // Status nibble @0x4: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid, bit3=data_ready
+    wire [15:0] status_word = {12'b0, pf_valid_fsmc, is_valid_fsmc, fifo_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
     // WRITE path: accumulate 4 nibbles, push to the FIFO on address 0x3
@@ -257,37 +319,35 @@ module FSMC #(
     // =================================================================
     // READ path: burst-read FSM, clocked by FSMC_CLK
     // =================================================================
-    localparam ST_IDLE      = 2'd0,
-               ST_LATENCY   = 2'd1,
-               ST_WAIT_POP  = 2'd2,
-               ST_STREAM    = 2'd3;
+    localparam ST_IDLE    = 2'd0,
+               ST_LATENCY = 2'd1,
+               ST_STREAM  = 2'd2;
 
     reg  [1:0]  state;
     reg  [3:0]  cur_addr;
     reg  [7:0]  lat_cnt;
-    reg  [31:0] wait_cnt;
     reg  [15:0] rd_holding;
+    reg         rd_consume_tog_fsmc;   // toggled when a prefetched word is taken
 
     wire read_selected = (~fsmc_ne) & (~fsmc_noe);
 
     initial begin
-        state            = ST_IDLE;
-        cur_addr         = 4'h0;
-        lat_cnt          = 8'h00;
-        wait_cnt         = 32'h0;
-        rd_holding       = 16'h0000;
-        burst_start_addr = 4'h0;
-        latch_addr       = 4'h0;
+        state               = ST_IDLE;
+        cur_addr            = 4'h0;
+        lat_cnt             = 8'h00;
+        rd_holding          = 16'h0000;
+        rd_consume_tog_fsmc = 1'b0;
+        burst_start_addr    = 4'h0;
+        latch_addr          = 4'h0;
     end
 
     always @(posedge fsmc_clk or posedge fsmc_ne or negedge reset_n) begin
         if (!reset_n) begin
-            state           <= ST_IDLE;
-            cur_addr        <= 4'h0;
-            lat_cnt         <= 8'h0;
-            wait_cnt        <= 32'h0;
-            rd_holding      <= 16'h0000;
-            rd_req_tog_fsmc <= 1'b0;
+            state               <= ST_IDLE;
+            cur_addr            <= 4'h0;
+            lat_cnt             <= 8'h0;
+            rd_holding          <= 16'h0000;
+            rd_consume_tog_fsmc <= 1'b0;
         end else if (fsmc_ne) begin
             state <= ST_IDLE;
         end else if (!fsmc_noe) begin
@@ -295,17 +355,24 @@ module FSMC #(
                 ST_IDLE: begin
                     cur_addr <= burst_start_addr;
                     if (burst_start_addr == 4'd0) begin
-                        if (fifo_empty_fsmc) begin
-                            // nothing to pop - don't stall, just replay stale rd_holding
+                        // Take the word the prefetch engine already has waiting.
+                        // No long stall: the data is local, so we use the same
+                        // short, bounded LATENCY path as the cached nibbles.
+                        if (pf_valid_fsmc) begin
+                            rd_holding          <= pf_data;
+                            rd_consume_tog_fsmc <= ~rd_consume_tog_fsmc;  // fetch next
+                        end
+                        // else: prefetch not ready (FIFO empty / firmware didn't
+                        // poll data-ready first) - replay stale rd_holding.
+                        if (LATENCY_CYCLES <= 1)
                             state <= ST_STREAM;
-                        end else begin
-                            rd_req_tog_fsmc <= ~rd_req_tog_fsmc;  // trigger a pop
-                            wait_cnt        <= 32'd0;
-                            state           <= ST_WAIT_POP;
+                        else begin
+                            lat_cnt <= LATENCY_CYCLES - 1;
+                            state   <= ST_LATENCY;
                         end
                     end else if (burst_start_addr == 4'd4) begin
-                        // Status register: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid
-                        // No stall - status is always synchronously available.
+                        // Status register: bit0=fifo_empty, bit1=fifo_full,
+                        // bit2=is_valid, bit3=data_ready. No stall.
                         rd_holding <= status_word;
                         state      <= ST_STREAM;
                     end else begin
@@ -322,17 +389,6 @@ module FSMC #(
                         state <= ST_STREAM;
                     else
                         lat_cnt <= lat_cnt - 8'd1;
-                end
-                ST_WAIT_POP: begin
-                    if (data_valid_edge_fsmc) begin
-                        rd_holding <= psram_data_out;
-                        state      <= ST_STREAM;
-                    end else if (wait_cnt >= MAX_WAIT_CYCLES) begin
-                        // safety net only - should not trigger in normal operation
-                        state <= ST_STREAM;
-                    end else begin
-                        wait_cnt <= wait_cnt + 32'd1;
-                    end
                 end
                 ST_STREAM: begin
                     cur_addr <= cur_addr + 4'd1;  // wraps; only [1:0] is meaningful
@@ -356,17 +412,15 @@ module FSMC #(
         end else begin
             case (state)
                 ST_IDLE: begin
-                    if (burst_start_addr == 4'd0) begin
-                        next_state = fifo_empty_fsmc ? ST_STREAM : ST_WAIT_POP;
-                    end else if (burst_start_addr == 4'd4) begin
+                    if (burst_start_addr == 4'd4) begin
                         next_state = ST_STREAM;  // status register - no stall
                     end else begin
+                        // address 0 (prefetched word) and 1-3 (cached nibbles)
+                        // both take the short bounded LATENCY path
                         next_state = (LATENCY_CYCLES <= 1) ? ST_STREAM : ST_LATENCY;
                     end
                 end
                 ST_LATENCY:  next_state = (lat_cnt <= 8'd1) ? ST_STREAM : ST_LATENCY;
-                ST_WAIT_POP: next_state = (data_valid_edge_fsmc || (wait_cnt >= MAX_WAIT_CYCLES))
-                                          ? ST_STREAM : ST_WAIT_POP;
                 ST_STREAM:   next_state = ST_STREAM;
                 default:     next_state = ST_IDLE;
             endcase
@@ -420,7 +474,7 @@ module FSMC #(
         .reset_n     (reset_n),
         .data_in     (wr_accum),
         .wr_toggle   (wr_req_tog_sync[1]),
-        .rd_toggle   (rd_req_tog_sync[1]),
+        .rd_toggle   (pf_rd_toggle),        // prefetch engine drives pops (sys_clk)
         .data_out    (psram_data_out),
         .data_valid  (psram_data_valid),
         .fifo_full   (psram_fifo_full),
