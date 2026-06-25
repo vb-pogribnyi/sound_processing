@@ -50,6 +50,20 @@ reg       psram_sio_oe;
 assign psram_sio = psram_sio_oe ? psram_sio_out : 4'bz;
 
 // ---------------------------------------------------------------------------
+// clog2: ceiling log2 — replaces $clog2 which ISE/XST does not support.
+// Must be defined before the localparams that call it.
+// ---------------------------------------------------------------------------
+function integer clog2;
+    input integer value;
+    integer i;
+    begin
+        clog2 = 0;
+        for (i = value - 1; i > 0; i = i >> 1)
+            clog2 = clog2 + 1;
+    end
+endfunction
+
+// ---------------------------------------------------------------------------
 // Derived parameters
 // ---------------------------------------------------------------------------
 localparam ENTRY_BYTES   = nADC * 2;
@@ -57,17 +71,17 @@ localparam ENTRY_BITS    = nADC * 16;
 localparam ENTRY_NIBS    = ENTRY_BITS / 4;   // nibble-clocks for QPI data phase
 localparam ADDR_BITS     = 23;
 localparam PU_CYCLES     = 150 * SYS_CLK_MHZ;
-localparam PU_CNT_W      = $clog2(PU_CYCLES + 1);
-localparam PTR_W         = $clog2(FIFO_DEPTH + 1);
+localparam PU_CNT_W      = clog2(PU_CYCLES + 1);
+localparam PTR_W         = clog2(FIFO_DEPTH + 1);
 
 // bit_cnt is reused for both bit-counts (SPI startup, max 24) and
 // nibble-counts (QPI data, max ENTRY_NIBS).  Size for the larger.
 localparam CNT_MAX = (ENTRY_NIBS > 24) ? ENTRY_NIBS : 24;
-localparam CNT_W   = $clog2(CNT_MAX + 1);
+localparam CNT_W   = clog2(CNT_MAX + 1);
 
 // tRST = 50 ns min
 localparam RST_WAIT   = (SYS_CLK_MHZ / 20 < 3) ? 3 : SYS_CLK_MHZ / 20;
-localparam RST_WAIT_W = $clog2(RST_WAIT + 1);
+localparam RST_WAIT_W = clog2(RST_WAIT + 1);
 
 // Self-test: write/read a fixed pattern at an address beyond the FIFO region
 localparam [ENTRY_BITS-1:0] ST_PATTERN = {(ENTRY_BITS/8){8'hA5}};
@@ -117,7 +131,7 @@ reg [23:0]           addr_sr;
 reg [ENTRY_BITS-1:0] data_sr;
 reg [3:0]            dummy_cnt;
 
-reg [$clog2(CLK_DIV)-1:0] div_cnt;
+reg [clog2(CLK_DIV)-1:0] div_cnt;
 reg sclk_en;
 reg sclk_phase;
 
