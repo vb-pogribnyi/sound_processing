@@ -191,6 +191,8 @@ module FSMC #(
     reg [1:0] data_valid_tog_sync_fsmc;
     reg       data_valid_tog_sync_fsmc_prev;
     reg       fifo_empty_sync1, fifo_empty_sync2;
+    reg       fifo_full_sync1,  fifo_full_sync2;
+    reg       is_valid_sync1,   is_valid_sync2;
 
     always @(posedge fsmc_clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -198,11 +200,19 @@ module FSMC #(
             data_valid_tog_sync_fsmc_prev <= 1'b0;
             fifo_empty_sync1               <= 1'b1;  // assume empty at reset - it genuinely is,
             fifo_empty_sync2               <= 1'b1;  // and "not empty" is the unsafe default here
+            fifo_full_sync1                <= 1'b0;
+            fifo_full_sync2                <= 1'b0;
+            is_valid_sync1                 <= 1'b0;
+            is_valid_sync2                 <= 1'b0;
         end else begin
             data_valid_tog_sync_fsmc      <= {data_valid_tog_sync_fsmc[0], data_valid_tog_sysclk};
             data_valid_tog_sync_fsmc_prev <= data_valid_tog_sync_fsmc[1];
             fifo_empty_sync1               <= psram_fifo_empty;
             fifo_empty_sync2               <= fifo_empty_sync1;
+            fifo_full_sync1                <= psram_fifo_full;
+            fifo_full_sync2                <= fifo_full_sync1;
+            is_valid_sync1                 <= psram_valid_int;
+            is_valid_sync2                 <= is_valid_sync1;
         end
     end
 
@@ -210,6 +220,11 @@ module FSMC #(
     // "one completion happened" - that's all a toggle signal needs.
     wire data_valid_edge_fsmc = (data_valid_tog_sync_fsmc[1] != data_valid_tog_sync_fsmc_prev);
     wire fifo_empty_fsmc      = fifo_empty_sync2;
+    wire fifo_full_fsmc       = fifo_full_sync2;
+    wire is_valid_fsmc        = is_valid_sync2;
+
+    // Status nibble at address 0x4: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid, bit3=0
+    wire [15:0] status_word = {12'b0, 1'b0, is_valid_fsmc, fifo_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
     // WRITE path: accumulate 4 nibbles, push to the FIFO on address 0x3
@@ -288,6 +303,11 @@ module FSMC #(
                             wait_cnt        <= 32'd0;
                             state           <= ST_WAIT_POP;
                         end
+                    end else if (burst_start_addr == 4'd4) begin
+                        // Status register: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid
+                        // No stall - status is always synchronously available.
+                        rd_holding <= status_word;
+                        state      <= ST_STREAM;
                     end else begin
                         if (LATENCY_CYCLES <= 1) begin
                             state <= ST_STREAM;
@@ -338,6 +358,8 @@ module FSMC #(
                 ST_IDLE: begin
                     if (burst_start_addr == 4'd0) begin
                         next_state = fifo_empty_fsmc ? ST_STREAM : ST_WAIT_POP;
+                    end else if (burst_start_addr == 4'd4) begin
+                        next_state = ST_STREAM;  // status register - no stall
                     end else begin
                         next_state = (LATENCY_CYCLES <= 1) ? ST_STREAM : ST_LATENCY;
                     end

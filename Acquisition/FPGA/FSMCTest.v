@@ -212,10 +212,39 @@ task fsmc_read_word;
 endtask
 
 // ---------------------------------------------------------------------------
+// Task: read the status nibble from address 0x4 (no NWAIT stall).
+// Returns the raw 4-bit nibble: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid.
+// ---------------------------------------------------------------------------
+task fsmc_read_status;
+    output [3:0] stat;
+    begin
+        // NADV phase: latch address 0x4
+        @(posedge fsmc_clk); #1;
+        fsmc_ne   = 0;
+        ad_drive  = 4'h4;
+        ad_oe     = 1;
+        fsmc_nadv = 0;
+        @(posedge fsmc_clk); #1;
+        fsmc_nadv = 1;
+        ad_oe     = 0;
+
+        // NOE: status has no stall (NWAIT never asserted)
+        fsmc_noe = 0;
+        @(posedge fsmc_clk); #6;   // one cycle for FSM + ACCESS_DELAY
+        stat = fsmc_ad;
+
+        fsmc_noe = 1;
+        fsmc_ne  = 1;
+        @(posedge fsmc_clk); #1;
+    end
+endtask
+
+// ---------------------------------------------------------------------------
 // Stimulus
 // ---------------------------------------------------------------------------
 integer test_fail = 0;
 reg [15:0] rbuf;
+reg  [3:0] stat;
 integer k;
 
 initial begin
@@ -271,6 +300,36 @@ initial begin
                  (rbuf === k * 16'h0101) ? "PASS" : "FAIL");
         if (rbuf !== k * 16'h0101) test_fail = test_fail + 1;
     end
+
+    // ------------------------------------------------------------------
+    // TEST 3: Status register (address 0x4)
+    //   After FIFO drained: empty=1, full=0, is_valid=1  → nibble = 4'b0101
+    //   Write one word:     empty=0, full=0, is_valid=1  → nibble = 4'b0100
+    // ------------------------------------------------------------------
+    $display("\n--- TEST 3: status register ---");
+
+    // FIFO is empty after TEST 2 - check status
+    repeat(5) @(posedge fsmc_clk);  // let CDC settle
+    fsmc_read_status(stat);
+    $display("  After drain:  stat=%b  empty=%b full=%b valid=%b  (exp 1 0 1)",
+             stat, stat[0], stat[1], stat[2]);
+    if (stat[0] !== 1'b1 || stat[1] !== 1'b0 || stat[2] !== 1'b1)
+        test_fail = test_fail + 1;
+
+    // Write one word then check again
+    fsmc_write_word(16'hBEEF);
+    wait_psram_idle;
+    fsmc_read_status(stat);
+    $display("  After 1 write: stat=%b  empty=%b full=%b valid=%b  (exp 0 0 1)",
+             stat, stat[0], stat[1], stat[2]);
+    if (stat[0] !== 1'b0 || stat[1] !== 1'b0 || stat[2] !== 1'b1)
+        test_fail = test_fail + 1;
+
+    // Drain and verify
+    fsmc_read_word(rbuf);
+    $display("  Drained word: 0x%04H  exp=0xBEEF  %s", rbuf,
+             (rbuf === 16'hBEEF) ? "PASS" : "FAIL");
+    if (rbuf !== 16'hBEEF) test_fail = test_fail + 1;
 
     // ------------------------------------------------------------------
     // Summary

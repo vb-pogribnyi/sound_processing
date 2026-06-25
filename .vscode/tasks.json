@@ -32,6 +32,42 @@
             "label": "FPGA simulation",
             "type": "shell",
             "command": "iverilog ./Acquisition/FPGA/MCP3461Master.v ./Acquisition/FPGA/MCP3461MasterTester.v && vvp a.out"
+        },
+        {
+            "label": "PSRAM sim – generate PSRAMTest.vcd",
+            "type": "shell",
+            "command": "iverilog -g2005 -o PSRAMTest.vvp PSRAMTest.v PSRAM.v aps6404l_behavioral_model.v && vvp PSRAMTest.vvp",
+            "options": {
+                "cwd": "${workspaceFolder}/Acquisition/FPGA",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "FSMC sim – generate FSMCTest.vcd",
+            "type": "shell",
+            "command": "iverilog -g2005 -o FSMCTest.vvp FSMCTest.v FSMC.v PSRAM.v aps6404l_behavioral_model.v && vvp FSMCTest.vvp",
+            "options": {
+                "cwd": "${workspaceFolder}/Acquisition/FPGA",
+                "shell": {
+                    "executable": "bash",
+                    "args": ["-c"]
+                }
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
         }
     ]
 }

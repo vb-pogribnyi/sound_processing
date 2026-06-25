@@ -2,6 +2,7 @@
 `include "src/ADS8865Master.v"
 // `include "src/Outputter.v"
 `include "src/FSMC.v"
+`include "src/PSRAM.v"
 `include "src/RunningMean.v"
 `include "src/MCP3461MAster.v"
 
@@ -46,8 +47,12 @@ module led(
      
     // Parallel output
     input wire i_OCLK,
+    
+    inout wire [3:0] PSRAM_SIO,
+    output wire o_PSRAM_CE,
+    output wire o_PSRAM_CLK,
 
-    inout wire [4:0] o_FSMC_AD,
+    inout wire [3:0] o_FSMC_AD,
     input wire o_FSMC_NE,
     input wire o_FSMC_NOE,
     input wire o_FSMC_NWE,
@@ -245,13 +250,35 @@ module led(
     //     .o_RDY(o_RDY)
     // );
 	 assign o_RDY = 0;
+
+    wire [3:0] psram_state;
+    // wire psram_fifo_empty;
+    // wire psram_fifo_full;
+    // reg wr_toggle = 0;
+    // reg rd_toggle = 0;
+    reg fsmc_reset = 1;
+    assign psram_state[3:1] = 0;
+    localparam nADC        = 1;
+    localparam CLK_DIV     = 4;
+    localparam SYS_CLK_MHZ = 50;
+    // localparam FIFO_DEPTH  = 8;    // small for fast simulation
+    localparam PSRAM_CLK_DIV     = 4;
+    localparam PSRAM_SYS_CLK_MHZ = 50;
+    localparam PSRAM_FIFO_DEPTH  = 8;
+    localparam MAX_WAIT          = 8000;
+    wire [nADC*16-1:0]     data_in;
+    wire [nADC*16-1:0]     data_out;
     
-    localparam LATENCY_CYCLES  = 2;
+    
+    // localparam LATENCY_CYCLES  = 2;
     localparam WAIT_ACTIVE_LOW = 0;
+
     FSMC #(
-        .LATENCY_CYCLES (LATENCY_CYCLES),
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
-        .ACCESS_DELAY   (5)
+        .PSRAM_CLK_DIV     (PSRAM_CLK_DIV),
+        .PSRAM_SYS_CLK_MHZ (PSRAM_SYS_CLK_MHZ),
+        .PSRAM_FIFO_DEPTH  (PSRAM_FIFO_DEPTH),
+        .MAX_WAIT_CYCLES   (MAX_WAIT)
     ) outputter (
         .fsmc_ad   (o_FSMC_AD),
         .fsmc_ne   (o_FSMC_NE),
@@ -259,8 +286,34 @@ module led(
         .fsmc_noe  (o_FSMC_NOE),
         .fsmc_nwe  (o_FSMC_NWE),
         .fsmc_clk  (o_FSMC_CLK),
-        .fsmc_nwait(o_FSMC_NWAIT)
+        .fsmc_nwait(o_FSMC_NWAIT),
+        .sys_clk       (i_CLK),
+        .reset_n       (fsmc_reset),
+        .psram_sclk    (o_PSRAM_CLK),
+        .psram_ce_n    (o_PSRAM_CE),
+        .psram_sio     (PSRAM_SIO),
+        .psram_is_valid(psram_state[0])
     );
+    // PSRAM #(
+    //     .nADC        (nADC),
+    //     .CLK_DIV     (CLK_DIV),
+    //     .SYS_CLK_MHZ (SYS_CLK_MHZ),
+    //     .FIFO_DEPTH  (FIFO_DEPTH)
+    // ) psram (
+    //     .sys_clk     (i_CLK),
+    //     .reset_n     (psram_reset),
+    //     .data_in     (data_in),
+    //     .wr_toggle   (wr_toggle),
+    //     .rd_toggle   (rd_toggle),
+    //     .data_out    (data_out),
+    //     .data_valid  (data_valid),
+    //     .fifo_full   (psram_fifo_full),
+    //     .fifo_empty  (psram_fifo_empty),
+    //     .is_valid    (psram_state[0]),
+    //     .psram_sclk  (o_PSRAM_CLK),
+    //     .psram_ce_n  (o_PSRAM_CE),
+    //     .psram_sio   (PSRAM_SIO)
+    // );
 
     Leds leds (
         .i_CLK(i_CLK),
@@ -272,7 +325,8 @@ module led(
         .i_VAR2(var2),
         .i_VAR3(var3),
         .i_VAR4(var4),
-        .i_STATE(mcp_state),
+        // .i_STATE(mcp_state),
+        .i_STATE(psram_state),
         .o_LED1P(o_LED1P),
         .o_LED2P(o_LED2P),
         .o_LED1N(o_LED1N),
