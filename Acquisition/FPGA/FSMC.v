@@ -40,6 +40,8 @@
 //   addr        read                              write
 //   ---------   -------------------------------   -----------------------
 //   0x0-0x7     FIFO entry, nibble 0..7           0x0-0x3: debug write
+//   0x9         camera average red    (4 bits)    -
+//   0xA         camera average green  (4 bits)    -
 //   0xB-0xE     live selected-channel value (16b) -
 //   0xF         status nibble                     adc_sel (live channel)
 //
@@ -128,6 +130,11 @@ module FSMC #(
     // ---- ADC sample source (sys_clk domain, from MCP3461Master) ----
     input  wire [16*NUM_ADC-1:0] adc_value,  // concatenated 16-bit channels
     input  wire                  adc_rdy,    // pulses high when a fresh sample set is ready
+
+    // ---- camera frame averages (sys_clk domain, from OV5640) ----
+    //   quasi-static: updated once per camera frame. Read at 0x9 / 0xA.
+    input  wire [3:0]            cam_red,    // 4-bit average red   (addr 0x9)
+    input  wire [3:0]            cam_green,  // 4-bit average green (addr 0xA)
 
     // ---- APS6404L QSPI PSRAM pins (passed straight through) ----
     output wire        psram_sclk,
@@ -325,15 +332,20 @@ module FSMC #(
     // "FIFO empty" and skip the pop. Fix: register these quasi-static signals in the always-
     // running sys_clk domain first so the value is current before the first fsmc_clk edge.
     reg fifo_empty_pre, fifo_full_pre, is_valid_pre;
+    reg [3:0] cam_red_pre, cam_green_pre;   // camera averages, sys_clk pre-register
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
             fifo_empty_pre <= 1'b1;
             fifo_full_pre  <= 1'b0;
             is_valid_pre   <= 1'b0;
+            cam_red_pre    <= 4'h0;
+            cam_green_pre  <= 4'h0;
         end else begin
             fifo_empty_pre <= psram_fifo_empty;
             fifo_full_pre  <= psram_fifo_full;
             is_valid_pre   <= psram_valid_int;
+            cam_red_pre    <= cam_red;
+            cam_green_pre  <= cam_green;
         end
     end
 
@@ -341,6 +353,7 @@ module FSMC #(
     reg       fifo_full_sync1;
     reg       is_valid_sync1;
     reg       pf_valid_sync1;     // data-ready (pf_valid) crossed into fsmc_clk
+    reg [3:0] cam_red_sync1, cam_green_sync1;
 
     always @(posedge fsmc_clk or negedge reset_n) begin
         if (!reset_n) begin
@@ -348,11 +361,15 @@ module FSMC #(
             fifo_full_sync1  <= 1'b0;
             is_valid_sync1   <= 1'b0;
             pf_valid_sync1   <= 1'b0;
+            cam_red_sync1    <= 4'h0;
+            cam_green_sync1  <= 4'h0;
         end else begin
             fifo_empty_sync1 <= fifo_empty_pre;
             fifo_full_sync1  <= fifo_full_pre;
             is_valid_sync1   <= is_valid_pre;
             pf_valid_sync1   <= pf_valid;
+            cam_red_sync1    <= cam_red_pre;
+            cam_green_sync1  <= cam_green_pre;
         end
     end
 
@@ -444,6 +461,14 @@ module FSMC #(
                             rd_holding          <= pf_data;
                             rd_consume_tog_fsmc <= ~rd_consume_tog_fsmc;  // fetch next
                         end
+                    end else if (burst_start_addr == 4'd9) begin
+                        // camera average red (single nibble)
+                        nib_base   <= 4'd9;
+                        rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_red_sync1};
+                    end else if (burst_start_addr == 4'd10) begin
+                        // camera average green (single nibble)
+                        nib_base   <= 4'd10;
+                        rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_green_sync1};
                     end else if (burst_start_addr >= LIVE_BASE &&
                                  burst_start_addr <  LIVE_BASE + 4'd4) begin
                         // live selected-channel value (16 bits, 4 nibbles)

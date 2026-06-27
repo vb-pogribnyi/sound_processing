@@ -5,6 +5,7 @@
 `include "src/PSRAM.v"
 `include "src/RunningMean.v"
 `include "src/MCP3461MAster.v"
+`include "src/OV5640.v"
 
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -86,8 +87,22 @@ module led(
     output wire o_DBG13,
     output wire o_DBG14,
     input wire i_AUX1,
-    input wire i_AUX2
-    ); 
+    input wire i_AUX2,
+
+    // OV5640 camera (only D3/D6/D7 of the DVP bus are wired).
+    // PWDN/RESETB are NOT driven from the FPGA - they are tied on the
+    // camera board (PWDN low, RESETB high); the sensor is reset over SCCB
+    // (software reset 0x3008=0x82, first entry in the config ROM).
+    output wire o_CAM_XCLK,
+    output wire o_CAM_SIOC,
+    inout  wire o_CAM_SIOD,
+    input  wire i_CAM_PCLK,
+    input  wire i_CAM_HREF,
+    input  wire i_CAM_VSYNC,
+    input  wire i_CAM_D7,
+    input  wire i_CAM_D6,
+    input  wire i_CAM_D3
+    );
      parameter CLK_FREQ = 50000000;
      localparam COUNT_MAX = CLK_FREQ / 100;
      reg [31:0] counter;
@@ -275,6 +290,30 @@ module led(
     // localparam LATENCY_CYCLES  = 2;
     localparam WAIT_ACTIVE_LOW = 0;
 
+    // OV5640 camera front-end: configures the sensor over SCCB and
+    // produces a 4-bit per-frame average red/green from the 3 wired DVP bits.
+    wire [3:0] cam_red;
+    wire [3:0] cam_green;
+    wire       cam_cfg_done;
+    OV5640 camera (
+        .i_CLK    (i_CLK),
+        .i_RST_N  (fsmc_reset),
+        .o_XCLK   (o_CAM_XCLK),
+        .o_SIOC   (o_CAM_SIOC),
+        .o_SIOD   (o_CAM_SIOD),
+        .o_PWDN   (),               // not wired to FPGA (tied on camera board)
+        .o_RESETB (),               // not wired to FPGA (tied on camera board)
+        .i_PCLK   (i_CAM_PCLK),
+        .i_HREF   (i_CAM_HREF),
+        .i_VSYNC  (i_CAM_VSYNC),
+        .i_D7     (i_CAM_D7),
+        .i_D6     (i_CAM_D6),
+        .i_D3     (i_CAM_D3),
+        .o_RED    (cam_red),
+        .o_GREEN  (cam_green),
+        .o_CFG_DONE(cam_cfg_done)
+    );
+
     FSMC #(
         .NUM_ADC           (NUM_ADC),
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
@@ -293,6 +332,8 @@ module led(
         .reset_n       (fsmc_reset),
         .adc_value     (outputs),       // MCP3461 multi-channel sample
         .adc_rdy       (rdy),           // fresh-sample pulse (gated on DR_STATUS)
+        .cam_red       (cam_red),       // camera frame-average red   (FSMC 0x9)
+        .cam_green     (cam_green),     // camera frame-average green (FSMC 0xA)
         .psram_sclk    (o_PSRAM_CLK),
         .psram_ce_n    (o_PSRAM_CE),
         .psram_sio     (PSRAM_SIO),

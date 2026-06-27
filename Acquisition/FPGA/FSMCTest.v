@@ -56,6 +56,10 @@ wire       fsmc_nwait;
 reg [ENTRY_BITS-1:0] adc_value = 0;
 reg                  adc_rdy   = 0;
 
+// Camera frame averages (sys_clk domain inputs)
+reg [3:0]            cam_red   = 0;
+reg [3:0]            cam_green = 0;
+
 // ---------------------------------------------------------------------------
 // PSRAM physical bus
 // ---------------------------------------------------------------------------
@@ -85,6 +89,8 @@ FSMC #(
     .reset_n       (reset_n),
     .adc_value     (adc_value),
     .adc_rdy       (adc_rdy),
+    .cam_red       (cam_red),
+    .cam_green     (cam_green),
     .psram_sclk    (psram_sclk),
     .psram_ce_n    (psram_ce_n),
     .psram_sio     (psram_sio),
@@ -276,6 +282,7 @@ endtask
 integer test_fail = 0;
 reg [ENTRY_BITS-1:0] ebuf;
 reg [ENTRY_BITS-1:0] lbuf;
+reg [ENTRY_BITS-1:0] cbuf;
 reg [3:0] stat;
 integer k;
 
@@ -380,6 +387,22 @@ initial begin
     $display("  Drained: 0x%08H  exp=0xCAFEF00D  %s", ebuf,
              (ebuf === 32'hCAFEF00D) ? "PASS" : "FAIL");
     if (ebuf !== 32'hCAFEF00D) test_fail = test_fail + 1;
+
+    // ------------------------------------------------------------------
+    // TEST 6: camera average red (0x9) / green (0xA)
+    // ------------------------------------------------------------------
+    $display("\n--- TEST 6: camera averages (0x9 red, 0xA green) ---");
+    cam_red   = 4'hA;
+    cam_green = 4'h5;
+    repeat(5) @(posedge fsmc_clk);   // let sys_clk pre-reg + fsmc FF settle
+    fsmc_read_region(4'd9, 1, cbuf);
+    $display("  red  (0x9) = 0x%01H  exp=0xA  %s", cbuf[3:0],
+             (cbuf[3:0] === 4'hA) ? "PASS" : "FAIL");
+    if (cbuf[3:0] !== 4'hA) test_fail = test_fail + 1;
+    fsmc_read_region(4'd10, 1, cbuf);
+    $display("  green(0xA) = 0x%01H  exp=0x5  %s", cbuf[3:0],
+             (cbuf[3:0] === 4'h5) ? "PASS" : "FAIL");
+    if (cbuf[3:0] !== 4'h5) test_fail = test_fail + 1;
 
     // ------------------------------------------------------------------
     $display("\n========================================");

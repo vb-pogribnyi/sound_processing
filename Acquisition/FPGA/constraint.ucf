@@ -105,14 +105,17 @@ NET "i_MCP_SDO1" LOC = "P23";
 NET "i_MCP_SDO2" LOC = "P24";
 NET "i_MCP_SDO3" LOC = "P26";
 NET "i_MCP_SDO4" LOC = "P27";
-# NET "o_CAM_D3" LOC = "P29";
-# NET "o_CAM_PCLK" LOC = "P30";
-# NET "o_CAM_D6" LOC = "P32";
-# NET "o_CAM_MCLK" LOC = "P33";
-# NET "o_CAM_D7" LOC = "P34";
-# NET "o_CAM_HSYNC" LOC = "P35";
-# NET "o_CAM_VSYNC" LOC = "P66";
-# NET "o_CAM_SCK" LOC = "P51";
-# NET "o_CAM_SDA" LOC = "P50";
+# --- OV5640 camera (3 DVP data bits wired: D3/D6/D7) ---
+# All camera ports MUST be constrained: unconstrained IO is auto-placed by
+# ISE onto arbitrary balls and will contend with the ADC/FSMC nets.
+NET "i_CAM_D3"    LOC = "P29";
+NET "i_CAM_PCLK"  LOC = "P30";
+NET "i_CAM_D6"    LOC = "P32";
+NET "o_CAM_XCLK"  LOC = "P33";   # sensor XVCLK (was labelled CAM_MCLK)
+NET "i_CAM_D7"    LOC = "P34";
+NET "i_CAM_HREF"  LOC = "P35";   # sensor HREF/HSYNC
+NET "i_CAM_VSYNC" LOC = "P66";
+NET "o_CAM_SIOC"  LOC = "P51";   # SCCB clock (was CAM_SCK)
+NET "o_CAM_SIOD"  LOC = "P50";   # SCCB data  (was CAM_SDA), needs pull-up
 # NET "o_MCP_nIRQ3" LOC = "P48";
 # NET "o_MCP_nIRQ2" LOC = "P47";
