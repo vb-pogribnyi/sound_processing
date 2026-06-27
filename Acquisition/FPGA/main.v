@@ -295,7 +295,15 @@ module led(
     wire [3:0] cam_red;
     wire [3:0] cam_green;
     wire       cam_cfg_done;
-    OV5640 camera (
+    // Bayer phase for THIS board (confirmed empirically): the true red
+    // corner is (EVEN column, odd line). The diagonal opposite (odd,even)
+    // is blue, the other two corners are green. (Picking (odd,even) made
+    // "red" read blue - high on white, low on red & green - so it's the
+    // mate, (even,odd).)
+    OV5640 #(
+        .RED_COL_PAR (1'b0),
+        .RED_LINE_PAR(1'b1)
+    ) camera (
         .i_CLK    (i_CLK),
         .i_RST_N  (fsmc_reset),
         .o_XCLK   (o_CAM_XCLK),

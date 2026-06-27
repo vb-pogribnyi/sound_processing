@@ -161,9 +161,12 @@ module OV5640 #(
         cfg_mem[12] = {16'h3108, 8'h16};   // clock dividers
         cfg_mem[13] = {16'h3824, 8'h04};   // DVP PCLK divider
         cfg_mem[14] = {16'h460C, 8'h20};   // PCLK auto
-        // --- ISP / format: RAW Bayer (so colour = pixel position) ---
-        cfg_mem[15] = {16'h5000, 8'hA7};   // ISP enables (DPC etc.)
-        cfg_mem[16] = {16'h5001, 8'h83};   // scale OFF (RAW is not scaled), AWB/SDE on
+        // --- ISP / format: RAW Bayer with colour processing OFF ---
+        // Critical: AWB / colour-matrix / gamma / demosaic must be disabled.
+        // AWB especially applies per-scene R/B gain in the Bayer domain and
+        // would invert the red measurement (red reads LOW on a red field).
+        cfg_mem[15] = {16'h5000, 8'h06};   // BPC+WPC only (no CIP/gamma/LENC)
+        cfg_mem[16] = {16'h5001, 8'h00};   // scale, AWB, colour matrix, SDE all OFF
         cfg_mem[17] = {16'h4300, 8'h00};   // FORMAT_CONTROL_00 = RAW, BGGR sequence
         cfg_mem[18] = {16'h501F, 8'h03};   // FORMAT MUX = ISP RAW (after DPC)
         // --- QVGA (320x240) window with 2x2 binning ---
@@ -193,13 +196,20 @@ module OV5640 #(
         cfg_mem[42] = {16'h3821, 8'h01};   // horizontal binning
         cfg_mem[43] = {16'h4514, 8'hAA};   // binning BLC pattern
         cfg_mem[44] = {16'h4520, 8'h0B};
+        // --- freeze AWB gains to 1x so nothing re-balances R/G/B ---
+        cfg_mem[45] = {16'h3406, 8'h01};   // AWB gain = MANUAL
+        cfg_mem[46] = {16'h3400, 8'h04};   // R gain high -> {0x4,0x00} = 0x400 = 1x
+        cfg_mem[47] = {16'h3401, 8'h00};   // R gain low
+        cfg_mem[48] = {16'h3402, 8'h04};   // G gain = 1x
+        cfg_mem[49] = {16'h3403, 8'h00};
+        cfg_mem[50] = {16'h3404, 8'h04};   // B gain = 1x
+        cfg_mem[51] = {16'h3405, 8'h00};
         // --- light frequency / power on ---
-        cfg_mem[45] = {16'h3C00, 8'h04};   // 50 Hz
-        cfg_mem[46] = {16'h3008, 8'h02};   // power up / start streaming
-        cfg_mem[47] = {16'hFFFF, 8'd4};    // settle
-        // <<< EXTENSION POINT: append the full vendor default register
-        //     list here (indices 48..CFG_MAX-2) for proper image quality >>>
-        cfg_mem[48] = {16'h0000, 8'h00};   // end of list
+        cfg_mem[52] = {16'h3C00, 8'h04};   // 50 Hz
+        cfg_mem[53] = {16'h3008, 8'h02};   // power up / start streaming
+        cfg_mem[54] = {16'hFFFF, 8'd4};    // settle
+        // <<< EXTENSION POINT: append the full vendor default register list >>>
+        cfg_mem[55] = {16'h0000, 8'h00};   // end of list
     end
 
     // -----------------------------------------------------------------
