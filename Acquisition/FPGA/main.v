@@ -124,8 +124,11 @@ module led(
         
     //     .o_CNT(o_CNT)
     // );
-    localparam NUM_ADC = 4;
-    
+    // One parameter for the whole chain. Capped at 2 until AD[7:4] are wired:
+    // a FIFO entry is 4*NUM_ADC nibbles and must fit below the control
+    // registers (live 0xB-0xE, status 0xF) in the 4-bit FSMC address space.
+    localparam NUM_ADC = 2;
+
     reg interrupt = 0;
     wire [3:0] miso;
     wire [2:0] mcp_state;
@@ -136,12 +139,12 @@ module led(
     wire [16 * NUM_ADC-1:0] outputs;
     assign out1 = outputs[16 * (0+1)-1:16 * 0];
     assign out2 = outputs[16 * (1+1)-1:16 * 1];
-    assign out3 = outputs[16 * (2+1)-1:16 * 2];
-    assign out4 = outputs[16 * (3+1)-1:16 * 3];
+    assign out3 = 16'h0000;   // channels 3-4 unused until NUM_ADC is raised
+    assign out4 = 16'h0000;
     MCP3461Master #( .NUM_ADC(NUM_ADC), .ADC_ADDR(1) ) adc_master (
         .i_CLK50(i_CLK),
         .i_INTERRUPT(interrupt),
-        .i_MISO(miso),
+        .i_MISO(miso[NUM_ADC-1:0]),
         .o_MOSI(o_MCP_SDI),
         .o_CS(o_MCP_nCS),
         .o_SCLK(o_MCP_SCK),
@@ -273,6 +276,7 @@ module led(
     localparam WAIT_ACTIVE_LOW = 0;
 
     FSMC #(
+        .NUM_ADC           (NUM_ADC),
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
         .PSRAM_CLK_DIV     (PSRAM_CLK_DIV),
         .PSRAM_SYS_CLK_MHZ (PSRAM_SYS_CLK_MHZ),
@@ -287,6 +291,8 @@ module led(
         .fsmc_nwait(o_FSMC_NWAIT),
         .sys_clk       (i_CLK),
         .reset_n       (fsmc_reset),
+        .adc_value     (outputs),       // MCP3461 multi-channel sample
+        .adc_rdy       (rdy),           // fresh-sample pulse (gated on DR_STATUS)
         .psram_sclk    (o_PSRAM_CLK),
         .psram_ce_n    (o_PSRAM_CE),
         .psram_sio     (PSRAM_SIO),

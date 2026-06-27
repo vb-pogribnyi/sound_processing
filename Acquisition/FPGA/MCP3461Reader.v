@@ -35,7 +35,12 @@ always @(posedge i_SCLK) begin
     end
     if (bit_idx == 24) begin
         o_VALUE <= rx_shift_reg[15:0];
-        o_RDY <= 1;
+        // Assert RDY only when the ADC's STATUS byte reported fresh data.
+        // The read clocks STATUS(8b) + DATA(16b); the STATUS byte's
+        // DR_STATUS bit (STAT[2], active-low: 0 = new data) was shifted into
+        // rx_shift_reg[18] (4th of the 22 captured bits). Suppress RDY on
+        // stale reads so duplicate samples are not pushed downstream.
+        o_RDY <= ~rx_shift_reg[18];
     end
 end
 
