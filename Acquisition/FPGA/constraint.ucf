@@ -98,7 +98,7 @@ NET "i_SW1" LOC = "P87";
 
 NET "o_MCP_nCS" LOC = "P16";
 NET "o_MCP_MCLK" LOC = "P15";
-# NET "o_MCP_nIRQ" LOC = "P17";
+NET "i_MCP_nIRQ" LOC = "P17";   # ADC data-ready / IRQ input (active low)
 NET "o_MCP_SCK" LOC = "P21";
 NET "o_MCP_SDI" LOC = "P22";
 NET "i_MCP_SDO1" LOC = "P23";

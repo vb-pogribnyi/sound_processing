@@ -41,6 +41,7 @@ module led(
     input wire i_MCP_SDO2,
     input wire i_MCP_SDO3,
     input wire i_MCP_SDO4,
+    input wire i_MCP_nIRQ,       // ADC data-ready / IRQ (active low) - drives DRDY sync
     output wire o_MCP_nCS,
     output wire o_MCP_SDI,
     output wire o_MCP_SCK,
@@ -144,7 +145,6 @@ module led(
     // registers (live 0xB-0xE, status 0xF) in the 4-bit FSMC address space.
     localparam NUM_ADC = 2;
 
-    reg interrupt = 0;
     wire [3:0] miso;
     wire [2:0] mcp_state;
     assign miso[0] = i_MCP_SDO1;
@@ -156,9 +156,17 @@ module led(
     assign out2 = outputs[16 * (1+1)-1:16 * 1];
     assign out3 = 16'h0000;   // channels 3-4 unused until NUM_ADC is raised
     assign out4 = 16'h0000;
+    // SW4 -> ADC PGA gain 1x, SW5 -> 2x (SW5 priority); neither -> baseline.
+    // Baseline is GAIN=1/3, so even 1x is a step up from it.
+    // Applied live (master re-sends CONFIG on change).
+    // Flip the comparisons to 1'b0 if your switches read low when asserted.
+    wire [2:0] adc_gain = (i_SW5 == 1'b1) ? 3'b010 :   // 2x
+                          (i_SW4 == 1'b1) ? 3'b001 :   // 1x
+                                            3'b000;     // baseline = 1/3 (unchanged)
     MCP3461Master #( .NUM_ADC(NUM_ADC), .ADC_ADDR(1) ) adc_master (
         .i_CLK50(i_CLK),
-        .i_INTERRUPT(interrupt),
+        .i_INTERRUPT(i_MCP_nIRQ),
+        .i_GAIN(adc_gain),
         .i_MISO(miso[NUM_ADC-1:0]),
         .o_MOSI(o_MCP_SDI),
         .o_CS(o_MCP_nCS),

@@ -6,6 +6,7 @@ module MCP3461Master #(
 ) (
     input wire i_CLK50,
     input wire i_INTERRUPT,
+    input wire [2:0] i_GAIN,         // MCP3461 PGA gain code (CONFIG2[5:3])
     input wire [NUM_ADC-1:0] i_MISO,
     // output wire sel_interrupt,
     output reg o_MOSI,
@@ -44,6 +45,18 @@ localparam	FRESH       = 3'h0,
             ERROR       = 3'h4;
 reg [1:0] cnt = 0;
 reg [16:0] to_cnt = TIMEOUT;
+// Read once per data-ready. WATCHDOG is a safety net: if IRQ never arrives
+// (e.g. unwired) the stream still advances, just slowly + obviously degraded.
+localparam WATCHDOG = 17'd50000;     // ~4 ms @ 12.5 MHz state rate
+reg  [1:0] irq_sync = 2'b11;         // 2-FF sync of IRQ (active low); 11 = not ready
+wire data_ready = ~irq_sync[1];      // 1 = ADC has a fresh conversion waiting
+// Live PGA-gain control: 2-FF sync the select, rebuild CONFIG2, and re-run the
+// config write whenever the selection changes. Base CONFIG2 = 0x45
+// (BOOST=01, AZ_MUX=1, low bits=01); only GAIN[2:0] (bits 5:3) is swapped in.
+reg  [2:0] gain_s0 = 3'b000, gain_s1 = 3'b000;  // synced gain select
+reg  [2:0] gain_applied = 3'b000;               // gain currently written to the ADC
+wire [7:0] config2 = {2'b01, gain_s1, 3'b101};  // CONFIG2 with selected gain
+wire gain_changed = (gain_s1 != gain_applied);
 wire [NUM_ADC-1:0] reader_rdy;
 assign o_RDY = &reader_rdy;
 genvar gi;
@@ -78,6 +91,9 @@ end
 assign o_MCLK = (cnt >= 2);
 always @(posedge i_CLK50) begin
     cnt <= cnt + 1;
+    irq_sync <= {irq_sync[0], i_INTERRUPT};   // synchronize the async IRQ pin
+    gain_s0  <= i_GAIN;                        // synchronize the gain-select switches
+    gain_s1  <= gain_s0;
     if (cnt == 0) begin // 6 MHZ clock
         sclk <= !sclk; 
 
@@ -111,7 +127,7 @@ always @(posedge i_CLK50) begin
                     tx_buff[0][6] <= addr[0];
                     tx_buff[1] <= cfg[0];
                     tx_buff[2] <= cfg[1];
-                    tx_buff[3] <= cfg[2];
+                    tx_buff[3] <= config2;   // CONFIG2 with switch-selected PGA gain
                     tx_buff[4] <= cfg[3];
                     tx_buff[5] <= cfg[4];
                     trigger <= 1;
@@ -121,29 +137,35 @@ always @(posedge i_CLK50) begin
                     // That would mean the ADC is configured.
                     tx_len <= 0;
                     o_STATE <= READING;
-
+                    gain_applied <= gain_s1;   // record the gain we just wrote
                     to_cnt <= TIMEOUT;
                 end
             end
-            READING: begin    // Main operation loop
-                if (to_cnt > 0) begin  // TODO: Wait for the interrupt to go low
-                    to_cnt <= to_cnt - 1;
-                end
-                else begin
-                    if (!trigger && !transmitting && o_CS && tx_len == 0) begin
-                        tx_len <= 3;    // 1 byte status 2 bytes ADC value
+            READING: begin    // Main loop: one read per data-ready (DRDY/IRQ)
+                if (!trigger && !transmitting && o_CS && tx_len == 0) begin
+                    // Read only when the ADC asserts IRQ (a fresh conversion is
+                    // waiting). This gives uniform sample timing and exactly one
+                    // read per conversion - no duplicates, no missed/overwritten
+                    // samples. Reading ADCDATA clears IRQ until the next
+                    // conversion. to_cnt is only a watchdog fallback.
+                    if (gain_changed) begin
+                        o_STATE <= ALIVE;   // re-apply config when PGA gain switch changes
+                    end
+                    else if (data_ready || to_cnt == 0) begin
+                        tx_len <= 3;    // status byte + 2 ADC data bytes
                         tx_buff[0] <= cmd_read_val;
                         tx_buff[0][7] <= addr[1];
                         tx_buff[0][6] <= addr[0];
                         tx_buff[1] <= 0;
                         tx_buff[2] <= 0;
                         trigger <= 1;
+                        to_cnt <= WATCHDOG;     // re-arm watchdog
+                    end else if (to_cnt > 0) begin
+                        to_cnt <= to_cnt - 1;
                     end
-                    if (!trigger && !transmitting && o_CS && tx_len > 0) begin
-                        // TODO: Output the ADC value
-                        tx_len <= 0;
-                        to_cnt <= TIMEOUT;
-                    end
+                end
+                if (!trigger && !transmitting && o_CS && tx_len > 0) begin
+                    tx_len <= 0;    // read complete; IRQ now cleared by the read
                 end
             end
         endcase
