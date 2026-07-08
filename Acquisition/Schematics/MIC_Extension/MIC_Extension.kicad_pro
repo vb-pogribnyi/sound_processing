@@ -45,7 +45,7 @@
         "silk_text_thickness": 0.15,
         "silk_text_upright": false,
         "zones": {
-          "min_clearance": 0.5
+          "min_clearance": 0.35
         }
       },
       "diff_pair_dimensions": [
@@ -407,7 +407,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "ADC_MainBoard.kicad_pro",
+    "filename": "MIC_Extension.kicad_pro",
     "version": 1
   },
   "net_settings": {
@@ -484,7 +484,7 @@
   },
   "sheets": [
     [
-      "89c9ff72-9916-4865-897e-a40a0c4dfe2f",
+      "8c348a62-ef66-40bd-93f1-5fbc22cdd0f1",
       ""
     ]
   ],

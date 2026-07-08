@@ -19,7 +19,7 @@
       "footprints": true,
       "graphics": true,
       "keepouts": true,
-      "lockedItems": true,
+      "lockedItems": false,
       "otherItems": true,
       "pads": true,
       "text": true,
@@ -64,11 +64,11 @@
       39,
       40
     ],
-    "visible_layers": "c001000_fffffffb",
+    "visible_layers": "ffc3e00_ffffffff",
     "zone_display_mode": 0
   },
   "meta": {
-    "filename": "Locator_FPGA.kicad_prl",
+    "filename": "MIC_Extension.kicad_prl",
     "version": 3
   },
   "project": {
