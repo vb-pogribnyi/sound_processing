@@ -21,6 +21,12 @@ For MMAUD testing - add option to test all microphones rotations
 + Make Cross3D work with both spectrogram & srp
 + Integrate mlflow into the training
 
+- Set up main USB transfer back
+- Make the DB flexible enough to handle multiple channels (16, 32)
+- OV camera jpeg display
+- Overlay menus
+- SRP, Beamforming software
+- Loading list of coordinates in QR code
 
 Figure out why TAME performs worse than reported in papers
     - Try different windows with unchanged collected

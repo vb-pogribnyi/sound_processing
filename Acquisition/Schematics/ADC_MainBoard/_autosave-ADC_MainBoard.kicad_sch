@@ -3153,6 +3153,9 @@
   (junction (at 217.17 144.78) (diameter 0) (color 0 0 0 0)
     (uuid f72d37bc-c59c-469c-9d7b-d616cdca2a78)
   )
+  (junction (at 162.56 160.02) (diameter 0) (color 0 0 0 0)
+    (uuid f83db50d-697f-4e20-b03d-8871006c84b4)
+  )
 
   (wire (pts (xy 106.68 100.33) (xy 114.3 100.33))
     (stroke (width 0) (type default))
@@ -5415,6 +5418,31 @@
     )
   )
 
+  (symbol (lib_id "power:GND") (at 162.56 167.64 0) (unit 1)
+    (in_bom yes) (on_board yes) (dnp no) (fields_autoplaced)
+    (uuid 38aeff43-c790-46da-b23e-d36708099e99)
+    (property "Reference" "#PWR09" (at 162.56 173.99 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Value" "GND" (at 162.56 172.72 0)
+      (effects (font (size 1.27 1.27)))
+    )
+    (property "Footprint" "" (at 162.56 167.64 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Datasheet" "" (at 162.56 167.64 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (pin "1" (uuid 271c9ca0-9790-47cb-90ef-6806b7fe4471))
+    (instances
+      (project "ADC_MainBoard"
+        (path "/89c9ff72-9916-4865-897e-a40a0c4dfe2f"
+          (reference "#PWR09") (unit 1)
+        )
+      )
+    )
+  )
+
   (symbol (lib_id "power:+5VA") (at 106.68 50.8 0) (unit 1)
     (in_bom yes) (on_board yes) (dnp no) (fields_autoplaced)
     (uuid 391a49c2-973c-4b9d-934f-18609d684282)
@@ -6084,6 +6112,32 @@
       (project "ADC_MainBoard"
         (path "/89c9ff72-9916-4865-897e-a40a0c4dfe2f"
           (reference "#PWR066") (unit 1)
+        )
+      )
+    )
+  )
+
+  (symbol (lib_id "Device:C") (at 162.56 163.83 0) (unit 1)
+    (in_bom yes) (on_board yes) (dnp no)
+    (uuid 5baa81be-d36e-40c4-ba6d-30f81dd1b976)
+    (property "Reference" "C2" (at 161.29 156.21 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Value" "100n" (at 161.29 158.75 0)
+      (effects (font (size 1.27 1.27)) (justify left))
+    )
+    (property "Footprint" "Capacitor_Tantalum_SMD:CP_EIA-3528-21_Kemet-B" (at 163.5252 167.64 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (property "Datasheet" "~" (at 162.56 163.83 0)
+      (effects (font (size 1.27 1.27)) hide)
+    )
+    (pin "2" (uuid b676aeb7-3758-4e9f-b8d7-35d29a655b9b))
+    (pin "1" (uuid f6571fe8-94ba-466e-b00d-d053914c243e))
+    (instances
+      (project "ADC_MainBoard"
+        (path "/89c9ff72-9916-4865-897e-a40a0c4dfe2f"
+          (reference "C2") (unit 1)
         )
       )
     )

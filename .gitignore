@@ -30,3 +30,5 @@ kwave/bin/*
 Generation/KWave/kwave/bin/linux/kspaceFirstOrder-CUDA
 /app/output
 mlruns/*
+Acquisition/KiCad/*
+*.gbrjob
