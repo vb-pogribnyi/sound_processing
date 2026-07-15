@@ -6,6 +6,24 @@
 `include "src/RunningMean.v"
 `include "src/MCP3461MAster.v"
 `include "src/OV5640.v"
+`include "src/AdcSim.v"
+
+// =====================================================================
+// DIP switch map (i_SW1 .. i_SW5)
+// ---------------------------------------------------------------------
+//   SW1 : Test-signal source select for the PSRAM FIFO.
+//         HIGH -> a 4-channel sine pattern replayed from sine.hex is fed
+//                 into the FIFO as ADC samples (see "SW1 test feed" below).
+//         LOW  -> the live MCP3461 ADC feeds the FIFO (normal operation).
+//   SW2 : (unused) wired to Leds.i_SW1; the Leds block that read it is
+//         commented out, so it currently has no effect.
+//   SW3 : (unused) wired to Leds.i_SW2 and to sw34[1] (sw34 only feeds the
+//         commented-out OutputterBuff); no effect at present.
+//   SW4 : MCP3461 PGA gain select -> 1x (see adc_gain). Also wired to
+//         Leds.i_SW3 / sw34[0] (no effect there).
+//   SW5 : MCP3461 PGA gain select -> 2x, takes priority over SW4 (see
+//         adc_gain). Also wired to Leds.i_SW4 / commented ADS8865 i_IS_ADS.
+// =====================================================================
 
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -330,6 +348,37 @@ module led(
         .o_CFG_DONE(cam_cfg_done)
     );
 
+    // =====================================================================
+    // SW1 test feed: an AdcSim instance replays 4-channel sine data from
+    // sine.hex and (when SW1 is high) is muxed into the FSMC ADC input in
+    // place of the live MCP3461. The same data path (FSMC -> PSRAM FIFO ->
+    // APS6404L) is exercised as in normal operation; only the sample source
+    // changes. See SW1PipelineTest.v for a full end-to-end simulation.
+    //
+    // Channel sharing: the 4 file channels wrap mod 4 across NUM_ADC (ch k
+    // <- file ch k%4), and the read address wraps so a file shorter than the
+    // FIFO just repeats from the beginning.
+    // =====================================================================
+    wire [16*NUM_ADC-1:0] sine_value;
+    wire                  sine_rdy;
+    wire [15:0]           sine_addr;         // current sample index (debug)
+    AdcSim #(
+        .NUM_ADC      (NUM_ADC),
+        .SINE_SAMPLES (2560),
+        .SINE_DIV     (1024),               // ~48.8 kHz @ 50 MHz (spaced > 1 PSRAM write)
+        .HEX_FILE     ("sine.hex")
+    ) adc_sim (
+        .i_CLK   (i_CLK),
+        .i_EN    (i_SW1),
+        .o_VALUE (sine_value),
+        .o_RDY   (sine_rdy),
+        .o_ADDR  (sine_addr)
+    );
+
+    // Source select: SW1 high -> sine test feed, low -> live MCP3461 ADC.
+    wire [16*NUM_ADC-1:0] fsmc_adc_value = i_SW1 ? sine_value : outputs;
+    wire                  fsmc_adc_rdy   = i_SW1 ? sine_rdy   : rdy;
+
     FSMC #(
         .NUM_ADC           (NUM_ADC),
         .WAIT_ACTIVE_LOW(WAIT_ACTIVE_LOW),
@@ -346,8 +395,8 @@ module led(
         .fsmc_nwait(o_FSMC_NWAIT),
         .sys_clk       (i_CLK),
         .reset_n       (fsmc_reset),
-        .adc_value     (outputs),       // MCP3461 multi-channel sample
-        .adc_rdy       (rdy),           // fresh-sample pulse (gated on DR_STATUS)
+        .adc_value     (fsmc_adc_value),   // SW1: sine test feed, else MCP3461 sample
+        .adc_rdy       (fsmc_adc_rdy),     // SW1: sine sample tick, else ADC fresh-sample
         .cam_red       (cam_red),       // camera frame-average red   (FSMC 0x9)
         .cam_green     (cam_green),     // camera frame-average green (FSMC 0xA)
         .psram_sclk    (o_PSRAM_CLK),
