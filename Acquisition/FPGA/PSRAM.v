@@ -33,6 +33,9 @@ module PSRAM #(
     input  wire [nADC*16-1:0]     data_in,
     input  wire                   wr_toggle,
     input  wire                   rd_toggle,
+    input  wire                   fifo_clear,   // sync clear: reset wr/rd pointers + count to 0
+                                                //   (serviced only in S_IDLE, never mid-transaction
+                                                //    and never during the startup self-test)
     output reg  [nADC*16-1:0]     data_out,
     output reg                    data_valid,
     output wire                   fifo_full,
@@ -326,7 +329,17 @@ always @(posedge sys_clk or negedge reset_n) begin
             psram_ce_n   <= 1;
             psram_sclk   <= 0;
             psram_sio_oe <= 1;
-            if (wr_pending && (st_mode || !fifo_full)) begin
+            if (fifo_clear && !st_mode) begin
+                // Acquisition (re)start: discard buffer contents and rewind
+                // both pointers to physical address 0. Gated on S_IDLE so a
+                // running SPI transaction is never corrupted, and on !st_mode
+                // so it can never disturb the power-up self-test.
+                wr_ptr     <= 0;
+                rd_ptr     <= 0;
+                count      <= 0;
+                wr_pending <= 0;
+                rd_pending <= 0;
+            end else if (wr_pending && (st_mode || !fifo_full)) begin
                 wr_pending <= 0;
                 cmd_sr     <= 8'h02;
                 addr_sr    <= st_mode ? ST_ADDR : fifo_addr(wr_ptr);

@@ -75,46 +75,6 @@ void drive_cam_indicator() {
 	if (tim_cnt >= 16) tim_cnt = 0;
 }
 
-
-//void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
-//	if (captures_requested > 0) {
-//		int captures_remaining = captures_requested / N_MICS - ncaptures;
-//		// Only ADC_BSY__2 have this interrupt configured
-//		  uint32_t data_remaining = htim1.hdma[1]->Instance->NDTR;
-//		  int dma_captures_remaining = data_remaining / 8;
-//		  if (/*adc_fstatus != 192 ||*/ dma_captures_remaining != captures_remaining) { // Check previous status
-//			  is_failed += 1;
-////			  HAL_TIM_IC_Stop_DMA(&htim1, TIM_CHANNEL_1);
-//			  __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_CC1);
-//			  if (htim1.hdma[1]->State == HAL_DMA_STATE_BUSY) {
-//				  HAL_DMA_Abort_IT(htim1.hdma[TIM_DMA_ID_CC1]);
-//			  }
-//
-//			  __HAL_TIM_DISABLE(&htim1);
-//			    TIM_CHANNEL_STATE_SET(&htim1, TIM_CHANNEL_1, HAL_TIM_CHANNEL_STATE_READY);
-//			    TIM_CHANNEL_N_STATE_SET(&htim1, TIM_CHANNEL_1, HAL_TIM_CHANNEL_STATE_READY);
-//			  __HAL_TIM_SET_COUNTER(&htim1, 0);
-//			  __HAL_TIM_CLEAR_FLAG(&htim1, TIM_FLAG_CC1 | TIM_FLAG_UPDATE);
-//			  __HAL_TIM_ENABLE(&htim1);
-//			  if (HAL_TIM_IC_Start_DMA(&htim1, TIM_CHANNEL_1, (uint32_t*)sound, captures_requested*2) == HAL_OK) {
-//				  ncaptures = 0;
-//			  }
-//		  }
-//		  ncaptures++;
-//	  }
-//	  if (state != SLEEPING) {
-//		  current_sample = GPIOD->IDR;
-//		  request_capture();
-//	  }
-//}
-//
-//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
-////	BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-////	xTaskNotifyFromISR(task_retr_main, 1 << CAPTURED, eSetBits, &xHigherPriorityTaskWoken);
-//	captures_requested = 0;
-////	portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-//}
-//
 int is_suspend_signal(uint32_t notification, BaseType_t result) {
 	if (result == pdFAIL) return 1;
 	if (notification == 1 << SLEEPING) return 1;
@@ -141,48 +101,14 @@ void task_retr_main_func(void* pvParameters) {
 	uint32_t notification = 0;
 	BaseType_t result;
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
-	uint16_t buf[2] = {0};
-	uint16_t data = 333;
 
-	BASE[0xF] = 1;                   // adc_sel
+	BASE[0xF] = 1;                   // Select ADC to be reported as periodic
 
 	for (;;) {
-		__IO uint8_t *psramaddress = (uint8_t *)PSRAM_PTR(0x00);
-
-//		uint8_t *pdestbuff = buf;
-//		HAL_SRAM_Read_8b(&hsram1, (uint32_t *)PSRAM_PTR(address), buffer, length);
-//		HAL_SRAM_Read_8b(&hsram1, (uint32_t *)PSRAM_PTR(0x15), buf, 32);
-
-//		while (!(BASE[0xF] & 0x8)) {}          // poll data-ready
-//		for (int n=0;n<2;n++) buf[n] = 0;
-//		for (int n=0;n<8;n++) buf[n>>2] |= (BASE[n]&0xF) << (4*(n&3));
-//
-//		current_sample = (BASE[0xB]&0xF) | (BASE[0xC]&0xF)<<4 | (BASE[0xD]&0xF)<<8 | (BASE[0xE]&0xF)<<12;
-//		red   = (BASE[0x9] & 0xF) * 2;
-//		green = (BASE[0xA] & 0xF) * 2;
-
-//	    for (int i = 0; i < 1024; i++)
-//	    {
-//	    	__IO uint8_t *psramaddress_w = (uint8_t *)PSRAM_PTR(0x00);
-//		    for (int j = 0; j < 4; j++)
-//		    {
-//				uint8_t data2 = data >> j * 4;
-//			    *psramaddress_w = data2;
-//			    psramaddress_w++;
-//			}
-//		    data += 1;
-//	    }
-//
-//	    for (int i = 0; i < 1024; i++)
-//	        buf[i] = psram_read_word();
-//
-//		HAL_Delay(500);
-
 		// -------------------------- Wait for request -----------------------------
 		switch (state) {
 		case SLEEPING:
-//			HAL_GPIO_WritePin(ADC_AUX_1_GPIO_Port, ADC_AUX_1_Pin, RESET);
-//			HAL_GPIO_WritePin(ADC_AUX_2_GPIO_Port, ADC_AUX_2_Pin, RESET);
+			// TODO: Tell FPGA we're not interested in values, buffer may be not contiguous
 			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
 			if (notification != 1 << READY) {
 				notification = 0;
@@ -191,9 +117,6 @@ void task_retr_main_func(void* pvParameters) {
 			state = READY;
 
 		case READY:
-//			HAL_GPIO_WritePin(ADC_AUX_1_GPIO_Port, ADC_AUX_1_Pin, RESET);
-//			HAL_GPIO_WritePin(ADC_AUX_2_GPIO_Port, ADC_AUX_2_Pin, RESET);
-
 			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
 			if (is_suspend_signal(notification, pdPASS)) {
 				state = SLEEPING;
@@ -202,13 +125,26 @@ void task_retr_main_func(void* pvParameters) {
 			if (notification != 1 << REQUESTED) {
 				break;	// This should never happen
 			}
+
+			state = REQUESTED;
+			BASE[0xE] = 1; // Reset PSRAM FIFO and request polling
+
+
 //			if (xSemaphoreTake(capture_semaphore, xMaxBlockTime) != pdTRUE) {
 //				state = SLEEPING;
 //				break;
 //			}
-//			state = REQUESTED;
 
 
+		case REQUESTED:
+			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
+			if (is_suspend_signal(notification, pdPASS)) {
+				state = SLEEPING;
+				break;
+			}
+			if (notification != 1 << CAPTURED) {
+				break;	// This should never happen
+			}
 
 			// Activate sound transmission
 			state = CAPTURED;
@@ -216,8 +152,6 @@ void task_retr_main_func(void* pvParameters) {
 			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), transfer_len);
 
 		case CAPTURED:
-//			HAL_GPIO_WritePin(ADC_AUX_1_GPIO_Port, ADC_AUX_1_Pin, RESET);
-//			HAL_GPIO_WritePin(ADC_AUX_2_GPIO_Port, ADC_AUX_2_Pin, RESET);
 			result = xTaskNotifyWait(0, 0xFFFFFFFF, &notification, xMaxBlockTime);
 			if (is_suspend_signal(notification, result)) {
 				state = SLEEPING;
@@ -245,64 +179,12 @@ void capture_periodic() {
 	green = (BASE[0xA] & 0xF);
 
 	if (state != SLEEPING) {
-//		if (state != REQUESTED) current_sample = GPIOD->IDR;
 		periodic_signal[pbuff_idx++] = current_sample;
-//		if (current_sample < 35000) {
-//			current_sample++;
-//		}
 		if (pbuff_idx >= PERIODIC_BUFFER*2) pbuff_idx = 0;
-////		if (pbuff_idx == 128 || pbuff_idx == 0) {
-//////			if (hpcd_USB_OTG_HS.IN_ep[4].xfer_len > hpcd_USB_OTG_HS.IN_ep[4].xfer_count) return;
-////			if (is_periodic_transmitting) is_periodic_overflow++;
-////			is_periodic_transmitting = 1;
-////			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x84, (uint8_t*)(&(periodic_signal[128-pbuff_idx])), 256);
-////		}
 	} else {
 		pbuff_idx = 0;
 	}
 }
-
-//const int16_t err_response = -5;
-//const int16_t dummy_periodic = -33;
-////uint16_t per_bytes_read = 0;
-//void task_retr_periodic_func(void* pvParameters) {
-//	uint32_t notification = 0;
-//	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 50 );
-//	BaseType_t result;
-//	periodic_state = PERIODIC_SLEEPING;
-//	for (;;) {
-//		xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
-//		if (notification != 1 << PERIODIC_REQUESTED) {
-//			continue;	// This should never happen
-//		}
-//		HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0, (uint8_t*)&dummy_periodic, 2); // Respond to the control request
-//		periodic_state = PERIODIC_REQUESTED;
-////		uint8_t is_first_half_ready = pbuff_idx >= PERIODIC_BUFFER ? 0 : 1;
-////		if (is_first_half_ready) {
-////			per_bytes_read = pbuff_idx*2;
-////			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x84, (uint8_t*)(&(periodic_signal[0])), per_bytes_read);
-////			pbuff_idx = PERIODIC_BUFFER;
-////		} else {
-////			per_bytes_read = (pbuff_idx - PERIODIC_BUFFER) * 2;
-////			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x84, (uint8_t*)(&(periodic_signal[PERIODIC_BUFFER])), per_bytes_read);
-////			pbuff_idx = 0;
-////		}
-//////		HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0, (uint8_t*)&per_bytes_read, 2); // Respond to the control request
-////
-////		result = xTaskNotifyWait(0, 0xFFFFFFFF, &notification, xMaxBlockTime);
-////		if (result == pdFAIL) {
-////			periodic_state = PERIODIC_FAIL;
-////			break;
-////		}
-////		if (notification == 1 << PERIODIC_REQUESTED) HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0, (uint8_t*)&err_response, 2); // Respond to the control request
-////		if (notification == 1 << PERIODIC_SENT) {
-//////			is_segger_tx = 0;
-////			periodic_state = PERIODIC_SENT;
-////			continue;
-////		}
-//	}
-//}
-
 
 uint16_t bytes_read = 0;
 uint8_t is_segger_tx = 1;

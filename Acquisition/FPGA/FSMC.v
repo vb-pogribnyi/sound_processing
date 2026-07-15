@@ -42,15 +42,23 @@
 //   0x0-0x7     FIFO entry, nibble 0..7           0x0-0x3: debug write
 //   0x9         camera average red    (4 bits)    -
 //   0xA         camera average green  (4 bits)    -
-//   0xB-0xE     live selected-channel value (16b) -
+//   0xB-0xE     live selected-channel value (16b) 0xE: acquisition control
 //   0xF         status nibble                     adc_sel (live channel)
 //
-//   Status nibble: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid,
-//                  bit3=data_ready (a prefetched entry is waiting).
+//   Status nibble: bit0=fifo_empty, bit1=acq_full (STICKY - see below),
+//                  bit2=is_valid, bit3=data_ready (a prefetched entry waits).
+//
+//   Acquisition control (write 0xE):
+//     0x1 -> ARM: rewind PSRAM write pointer to 0, clear acq_full, enable
+//                 ADC->FIFO capture.
+//     0x0 -> STOP capture early (no sticky flag set).
 //
 // PRIMARY DATA SOURCE: the MCP3461 ADC pushes each completed multi-channel
-// sample into the FIFO automatically (adc_value/adc_rdy). STM32 writes to
-// 0x0-0x3 remain only as a debug path.
+// sample into the FIFO - but ONLY while an acquisition is armed. Capture is
+// DISABLED by default out of reset; the STM32 arms it by writing 0x1 to 0xE.
+// When the FIFO fills, capture stops automatically (unread data is NEVER
+// overwritten) and acq_full (status bit1) latches high to tell the STM32 to
+// drain the FIFO and re-arm. STM32 writes to 0x0-0x3 remain a debug path.
 //
 // READ: the FIFO entry is PREFETCHED into a holding register by a small
 // engine in the free-running sys_clk domain (see "PREFETCH engine"). A read
@@ -67,21 +75,34 @@
 // (the FSM that releases NWAIT is clocked by the very clock the STM32
 // stops). Prefetching removes the long stall entirely.
 //
-// FIRMWARE CONTRACT (buffered read): poll status (0xF) bit3 (data-ready)
-// before reading each entry, then read 0x0..(4*NUM_ADC-1). The live value
-// (0xB-0xE) needs no poll: write the channel index to 0xF once, then read
-// 0xB-0xE as often as wanted. Example (NUM_ADC=2):
-//     while (!(*(volatile uint8_t*)(BASE+0xF) & 0x8)) { }  // wait ready
-//     for (n=0;n<8;n++) word[n>>2] |= (BASE[n]&0xF) << (4*(n&3));
+// FIRMWARE CONTRACT (capture + drain):
+//   1. Once at startup, wait for self-test: while (!(BASE[0xF] & 0x4)) {}  // is_valid
+//   2. Arm the capture:     BASE[0xE] = 0x1;                       // start polling
+//   3. Drain entries as they arrive - reading may begin with the FIRST
+//      sample; there is NO need to wait for the buffer to fill:
+//        while (!(BASE[0xF] & 0x8)) {}                             // data-ready (bit3)
+//        for (n=0;n<4*NUM_ADC;n++) word[n>>2] |= (BASE[n]&0xF) << (4*(n&3));
+//      Optionally, a batch reader may instead wait for acq_full (bit1) - set
+//      only if the FIFO fills before the STM32 keeps up - then drain in a
+//      loop until the FIFO is empty (bit0).
+//   4. Re-arm:              BASE[0xE] = 0x1;                       // next capture
+// Arming rewinds the PSRAM write pointer to 0 and clears acq_full; is_valid is
+// NOT re-checked (it never clears once set), so a re-arm is immediate. The live
+// value (0xB-0xE READ) needs no poll and is independent of capture: write the
+// channel index to 0xF once, then read 0xB-0xE anytime.
 //
 // -----------------------------------------------------------------------
 // Limitations / things to be aware of
 // -----------------------------------------------------------------------
+//  - Capture is disabled out of reset; nothing is stored until the STM32
+//    arms it (write 0x1 to 0xE). Re-arming after a full buffer DISCARDS any
+//    entries the STM32 did not read - drain fully before re-arming.
 //  - If firmware reads address 0x0 without a prefetched entry ready
 //    (data-ready=0), the module returns stale rd_holding rather than
 //    stalling. Always poll data-ready (status bit3) first.
-//  - If the FIFO is full when a sample arrives, the push is silently
-//    dropped (status fifo_full bit reports it).
+//  - While a capture is armed, samples stop being pushed the moment the FIFO
+//    is full; unread data is preserved (never overwritten) and acq_full
+//    (status bit1) latches high until the next arm.
 //  - NUM_ADC must be small enough that the entry (addr 0..4*NUM_ADC-1)
 //    does not overlap the control regions (live 0xB-0xE, status 0xF). With
 //    only AD[3:0] routed that means NUM_ADC<=2. Wiring AD[7:4] (8-bit
@@ -91,6 +112,8 @@
 // aids - not synthesisable as-is; replace/remove for real synthesis if
 // your toolchain rejects delay-controlled continuous assignments.
 // =====================================================================
+
+`timescale 1ns/1ps
 
 module FSMC #(
     parameter LATENCY_CYCLES  = 2,  // FSMC_CLK wait cycles before streaming a nibble
@@ -149,11 +172,17 @@ module FSMC #(
     localparam ENTRY_BITS = 16 * NUM_ADC;   // bits per FIFO entry (32 for NUM_ADC=2)
     localparam ENTRY_NIBS = 4  * NUM_ADC;   // read nibbles per entry (8 for NUM_ADC=2)
     // Address map (4-bit space, AD[3:0]):
-    //   0 .. ENTRY_NIBS-1 : FIFO entry nibbles (read) / debug write (0..3)
-    //   LIVE_BASE..+3     : live selected-channel value (16b / 4 nibbles)
-    //   STAT_ADDR         : status (read) / adc_sel (write)
-    localparam [3:0] LIVE_BASE = 4'd11;     // live value at 11,12,13,14
-    localparam [3:0] STAT_ADDR = 4'd15;     // status (read) / adc_sel (write)
+    //   0x0 .. ENTRY_NIBS-1 : FIFO entry nibbles (read) / debug write (0x0..0x3)
+    //   CAM_RED  (0x9)      : camera average red   (read, 1 nibble)
+    //   CAM_GREEN(0xA)      : camera average green (read, 1 nibble)
+    //   LIVE_BASE(0xB)..+3  : live selected-channel value (16b / 4 nibbles, read)
+    //   CTRL_ADDR(0xE)      : acquisition control (write: 0x1=arm, 0x0=stop)
+    //   STAT_ADDR(0xF)      : status (read) / adc_sel (write)
+    localparam [3:0] LIVE_BASE = 4'hB;      // live value at 0xB,0xC,0xD,0xE (read)
+    localparam [3:0] CTRL_ADDR = 4'hE;      // acquisition control (write): 0x1=arm, 0x0=stop
+    localparam [3:0] STAT_ADDR = 4'hF;      // status (read) / adc_sel (write)
+    localparam [3:0] CAM_RED   = 4'h9;      // camera average red   (read, 1 nibble)
+    localparam [3:0] CAM_GREEN = 4'hA;      // camera average green (read, 1 nibble)
 
     // ---------------------------------------------------------------
     // Address phase: transparent latch while NADV is low; frozen on
@@ -202,31 +231,60 @@ module FSMC #(
     wire                  psram_valid_int;
     assign psram_is_valid = psram_valid_int;
 
-    // ---- adc_sel (written by FSMC at STAT_ADDR) synchronized into sys_clk ----
+    // ---- Two fsmc_nwe->sys_clk crossings share one synchronizer block ----
+    //   * adc_sel        (STAT_ADDR write) : plain 2-FF value sync
+    //   * acquisition cmd (CTRL_ADDR write): toggle (edge=new cmd) + data bit
     reg [3:0] adc_sel;                       // fsmc_nwe domain (write decode below)
     reg [3:0] adc_sel_sync1, adc_sel_sync2;
+    reg [1:0] ctrl_cmd_sync;
+    reg       ctrl_cmd_sync_prev;
+    reg       ctrl_val_sync1, ctrl_val_sync2;
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
-            adc_sel_sync1 <= 4'h0;
-            adc_sel_sync2 <= 4'h0;
+            adc_sel_sync1      <= 4'h0;
+            adc_sel_sync2      <= 4'h0;
+            ctrl_cmd_sync      <= 2'b00;
+            ctrl_cmd_sync_prev <= 1'b0;
+            ctrl_val_sync1     <= 1'b0;
+            ctrl_val_sync2     <= 1'b0;
         end else begin
-            adc_sel_sync1 <= adc_sel;
-            adc_sel_sync2 <= adc_sel_sync1;
+            adc_sel_sync1      <= adc_sel;
+            adc_sel_sync2      <= adc_sel_sync1;
+            ctrl_cmd_sync      <= {ctrl_cmd_sync[0], ctrl_cmd_tog_fsmc};
+            ctrl_cmd_sync_prev <= ctrl_cmd_sync[1];
+            ctrl_val_sync1     <= ctrl_cmd_val;
+            ctrl_val_sync2     <= ctrl_val_sync1;
         end
     end
+    wire ctrl_cmd_edge = (ctrl_cmd_sync[1] != ctrl_cmd_sync_prev);
+    wire start_pulse   = ctrl_cmd_edge &  ctrl_val_sync2;   // write 0x1 to CTRL_ADDR
+    wire stop_pulse    = ctrl_cmd_edge & ~ctrl_val_sync2;   // write 0x0 to CTRL_ADDR
 
     // =================================================================
-    // sys_clk WRITE ARBITER + live-value register
+    // sys_clk WRITE ARBITER + live-value register + ACQUISITION CONTROL
     //
-    // Two write sources feed the single PSRAM write port:
-    //   * ADC samples (adc_rdy pulse, data = adc_value) - the real source
-    //   * STM32 debug writes (stm_wr_edge, data = wr_accum) - occasional
-    // ADC has priority; on a same-cycle collision the debug write is
-    // dropped (acceptable for a manual debug path). Both psram_wr_toggle
-    // and psram_wr_data are sys_clk - same domain as PSRAM, no CDC.
+    // Write sources feeding the single PSRAM write port:
+    //   * ADC samples (adc_rdy pulse, data = adc_value) - the real source,
+    //     pushed ONLY while a capture is armed (polling_enabled) and the FIFO
+    //     is not full.
+    //   * STM32 debug writes (stm_wr_edge, data = wr_accum) - occasional.
+    // ADC has priority; on a same-cycle collision the debug write is dropped.
+    // Both psram_wr_toggle and psram_wr_data are sys_clk - no CDC.
     //
-    // live_val tracks the adc_sel-selected channel, refreshed every
-    // adc_rdy, and is read back (untouched by the FIFO) at LIVE_BASE..+3.
+    // live_val tracks the adc_sel-selected channel, refreshed every adc_rdy
+    // REGARDLESS of capture state, and is read back at LIVE_BASE..+3.
+    //
+    // Acquisition control (same block, no extra sys_clk process):
+    //   - Disabled out of reset (polling_enabled=0). STM32 writes 0x1 to
+    //     CTRL_ADDR to ARM: once the PSRAM self-test has passed (is_valid,
+    //     checked ONCE - it never clears afterwards, so re-arm is immediate),
+    //     it pulses psram_fifo_clear (write pointer -> 0, stale contents +
+    //     prefetch discarded) then enables pushes.
+    //   - On FIFO full: pushes stop (unread data preserved) and acq_full_sticky
+    //     latches (status bit1). is_valid is untouched - ready for a hot re-arm.
+    //   - STM32 writes 0x0 to CTRL_ADDR to stop early (no sticky flag).
+    //   - Reading may begin as soon as the first entry is available (see the
+    //     prefetch engine / data-ready bit3); waiting for full is optional.
     // =================================================================
     reg                  psram_wr_toggle;
     reg [ENTRY_BITS-1:0] psram_wr_data;
@@ -234,28 +292,90 @@ module FSMC #(
     reg                  adc_rdy_d;
     wire                 adc_rdy_edge = adc_rdy & ~adc_rdy_d;
 
+    reg       polling_enabled;   // 1 while a capture is armed (gates ADC pushes)
+    reg       acq_full_sticky;   // latched: FIFO filled, capture auto-stopped
+    reg       psram_fifo_clear;  // -> PSRAM.fifo_clear (same sys_clk domain)
+    reg [1:0] acq_state;
+    reg       arm_pending;       // arm requested, waiting on first self-test
+    reg [3:0] clear_hold;        // min hold so PSRAM samples fifo_clear in S_IDLE
+    localparam ACQ_OFF   = 2'd0,
+               ACQ_CLEAR = 2'd1,
+               ACQ_RUN   = 2'd2;
+
     integer ch;
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
-            psram_wr_toggle <= 1'b0;
-            psram_wr_data   <= {ENTRY_BITS{1'b0}};
-            live_val        <= 16'h0000;
-            adc_rdy_d       <= 1'b0;
+            psram_wr_toggle  <= 1'b0;
+            psram_wr_data    <= {ENTRY_BITS{1'b0}};
+            live_val         <= 16'h0000;
+            adc_rdy_d        <= 1'b0;
+            polling_enabled  <= 1'b0;
+            acq_full_sticky  <= 1'b0;
+            psram_fifo_clear <= 1'b0;
+            acq_state        <= ACQ_OFF;
+            arm_pending      <= 1'b0;
+            clear_hold       <= 4'd0;
         end else begin
             adc_rdy_d <= adc_rdy;
 
+            // ---- ADC push + live value ----
             if (adc_rdy_edge) begin
-                // push the full multi-channel sample, refresh live value
-                psram_wr_data   <= adc_value;
-                psram_wr_toggle <= ~psram_wr_toggle;
                 for (ch = 0; ch < NUM_ADC; ch = ch + 1)
                     if (adc_sel_sync2 == ch)
                         live_val <= adc_value[16*ch +: 16];
+                if (polling_enabled && !psram_fifo_full) begin
+                    psram_wr_data   <= adc_value;
+                    psram_wr_toggle <= ~psram_wr_toggle;
+                end
             end else if (stm_wr_edge) begin
                 // debug: low 16 bits = the word the STM32 assembled, rest 0
                 psram_wr_data   <= {{(ENTRY_BITS-16){1'b0}}, wr_accum};
                 psram_wr_toggle <= ~psram_wr_toggle;
             end
+
+            // ---- acquisition control FSM ----
+            case (acq_state)
+                ACQ_OFF: begin
+                    polling_enabled  <= 1'b0;
+                    psram_fifo_clear <= 1'b0;
+                    if (start_pulse) begin
+                        acq_full_sticky <= 1'b0;   // starting fresh
+                        arm_pending     <= 1'b1;
+                    end
+                    // is_valid is checked only here and never clears once set,
+                    // so a re-arm after the first startup proceeds immediately.
+                    if (arm_pending && psram_valid_int) begin
+                        arm_pending      <= 1'b0;
+                        psram_fifo_clear <= 1'b1;
+                        clear_hold       <= 4'd3;
+                        acq_state        <= ACQ_CLEAR;
+                    end
+                end
+                ACQ_CLEAR: begin
+                    psram_fifo_clear <= 1'b1;      // hold clear asserted
+                    if (clear_hold != 4'd0) begin
+                        clear_hold <= clear_hold - 4'd1;
+                    end else if (fifo_empty_pre && !pf_inflight) begin
+                        // buffer emptied and no pop in flight -> capture window open
+                        psram_fifo_clear <= 1'b0;
+                        polling_enabled  <= 1'b1;
+                        acq_state        <= ACQ_RUN;
+                    end
+                end
+                ACQ_RUN: begin
+                    polling_enabled <= 1'b1;
+                    if (stop_pulse) begin
+                        polling_enabled <= 1'b0;
+                        acq_state       <= ACQ_OFF;
+                    end else if (fifo_full_pre) begin
+                        // buffer full: stop capturing, latch sticky flag
+                        polling_enabled <= 1'b0;
+                        acq_full_sticky <= 1'b1;
+                        acq_state       <= ACQ_OFF;
+                    end
+                end
+                default: acq_state <= ACQ_OFF;
+            endcase
         end
     end
 
@@ -307,7 +427,15 @@ module FSMC #(
             consume_tog_sync      <= {consume_tog_sync[0], rd_consume_tog_fsmc};
             consume_tog_sync_prev <= consume_tog_sync[1];
 
-            if (pf_inflight && psram_data_valid) begin
+            if (psram_fifo_clear) begin
+                // Acquisition (re)start: throw away any prefetched/held word so
+                // a stale entry from a previous capture can't be read as the
+                // first entry of the new one. Let an in-flight pop retire (its
+                // psram_data_valid) but discard the result.
+                pf_valid <= 1'b0;
+                if (pf_inflight && psram_data_valid)
+                    pf_inflight <= 1'b0;
+            end else if (pf_inflight && psram_data_valid) begin
                 pf_data     <= psram_data_out;      // pop landed -> word ready
                 pf_valid    <= 1'b1;
                 pf_inflight <= 1'b0;
@@ -331,19 +459,21 @@ module FSMC #(
     // transactions, causing the first read after any number of async writes to see a stale
     // "FIFO empty" and skip the pop. Fix: register these quasi-static signals in the always-
     // running sys_clk domain first so the value is current before the first fsmc_clk edge.
-    reg fifo_empty_pre, fifo_full_pre, is_valid_pre;
+    reg fifo_empty_pre, fifo_full_pre, is_valid_pre, acq_full_pre;
     reg [3:0] cam_red_pre, cam_green_pre;   // camera averages, sys_clk pre-register
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
             fifo_empty_pre <= 1'b1;
             fifo_full_pre  <= 1'b0;
             is_valid_pre   <= 1'b0;
+            acq_full_pre   <= 1'b0;
             cam_red_pre    <= 4'h0;
             cam_green_pre  <= 4'h0;
         end else begin
             fifo_empty_pre <= psram_fifo_empty;
             fifo_full_pre  <= psram_fifo_full;
             is_valid_pre   <= psram_valid_int;
+            acq_full_pre   <= acq_full_sticky;
             cam_red_pre    <= cam_red;
             cam_green_pre  <= cam_green;
         end
@@ -352,6 +482,7 @@ module FSMC #(
     reg       fifo_empty_sync1;   // single fsmc_clk FF — source already sys_clk-stable
     reg       fifo_full_sync1;
     reg       is_valid_sync1;
+    reg       acq_full_sync1;     // sticky "capture full / stopped" flag
     reg       pf_valid_sync1;     // data-ready (pf_valid) crossed into fsmc_clk
     reg [3:0] cam_red_sync1, cam_green_sync1;
 
@@ -360,6 +491,7 @@ module FSMC #(
             fifo_empty_sync1 <= 1'b1;
             fifo_full_sync1  <= 1'b0;
             is_valid_sync1   <= 1'b0;
+            acq_full_sync1   <= 1'b0;
             pf_valid_sync1   <= 1'b0;
             cam_red_sync1    <= 4'h0;
             cam_green_sync1  <= 4'h0;
@@ -367,6 +499,7 @@ module FSMC #(
             fifo_empty_sync1 <= fifo_empty_pre;
             fifo_full_sync1  <= fifo_full_pre;
             is_valid_sync1   <= is_valid_pre;
+            acq_full_sync1   <= acq_full_pre;
             pf_valid_sync1   <= pf_valid;
             cam_red_sync1    <= cam_red_pre;
             cam_green_sync1  <= cam_green_pre;
@@ -374,12 +507,14 @@ module FSMC #(
     end
 
     wire fifo_empty_fsmc = fifo_empty_sync1;
-    wire fifo_full_fsmc  = fifo_full_sync1;
+    wire fifo_full_fsmc  = fifo_full_sync1;   // (kept for debug; not in status word)
     wire is_valid_fsmc   = is_valid_sync1;
+    wire acq_full_fsmc   = acq_full_sync1;
     wire pf_valid_fsmc   = pf_valid_sync1;
 
-    // Status nibble @STAT_ADDR: bit0=fifo_empty, bit1=fifo_full, bit2=is_valid, bit3=data_ready
-    wire [15:0] status_word = {12'b0, pf_valid_fsmc, is_valid_fsmc, fifo_full_fsmc, fifo_empty_fsmc};
+    // Status nibble @STAT_ADDR:
+    //   bit0=fifo_empty  bit1=acq_full(sticky)  bit2=is_valid  bit3=data_ready
+    wire [15:0] status_word = {12'b0, pf_valid_fsmc, is_valid_fsmc, acq_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
     // WRITE path (fsmc_nwe domain)
@@ -389,15 +524,25 @@ module FSMC #(
     // =================================================================
     reg [15:0] wr_accum;
 
+    // acquisition-control command crossed to sys_clk as a toggle + data bit
+    reg ctrl_cmd_tog_fsmc;
+    reg ctrl_cmd_val;                              // 1 = arm/start, 0 = stop
+
     always @(posedge fsmc_nwe or negedge reset_n) begin
         if (!reset_n) begin
-            wr_accum        <= 16'h0000;
-            wr_req_tog_fsmc <= 1'b0;
-            adc_sel         <= 4'h0;
+            wr_accum          <= 16'h0000;
+            wr_req_tog_fsmc   <= 1'b0;
+            adc_sel           <= 4'h0;
+            ctrl_cmd_tog_fsmc <= 1'b0;
+            ctrl_cmd_val      <= 1'b0;
         end else if (~fsmc_ne) begin
             if (burst_start_addr == STAT_ADDR) begin
                 adc_sel <= fsmc_ad;                // select live channel
-            end else if (burst_start_addr < 4'd4) begin
+            end else if (burst_start_addr == CTRL_ADDR) begin
+                // acquisition control: bit0 = 1 arm, 0 stop
+                ctrl_cmd_val      <= fsmc_ad[0];
+                ctrl_cmd_tog_fsmc <= ~ctrl_cmd_tog_fsmc;
+            end else if (burst_start_addr < 4'h4) begin
                 case (burst_start_addr[1:0])
                     2'd0: wr_accum[3:0]   <= fsmc_ad;
                     2'd1: wr_accum[7:4]   <= fsmc_ad;
@@ -454,23 +599,23 @@ module FSMC #(
                     cur_addr <= burst_start_addr;
                     // ---- region decode + load (only at a region's first address) ----
                     if (burst_start_addr < ENTRY_NIBS) begin
-                        // FIFO entry region (0 .. ENTRY_NIBS-1)
-                        nib_base <= 4'd0;
-                        if (burst_start_addr == 4'd0 && pf_valid_fsmc) begin
+                        // FIFO entry region (0x0 .. ENTRY_NIBS-1)
+                        nib_base <= 4'h0;
+                        if (burst_start_addr == 4'h0 && pf_valid_fsmc) begin
                             // take the prefetched entry; addr 1.. just replay it
                             rd_holding          <= pf_data;
                             rd_consume_tog_fsmc <= ~rd_consume_tog_fsmc;  // fetch next
                         end
-                    end else if (burst_start_addr == 4'd9) begin
+                    end else if (burst_start_addr == CAM_RED) begin
                         // camera average red (single nibble)
-                        nib_base   <= 4'd9;
+                        nib_base   <= CAM_RED;
                         rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_red_sync1};
-                    end else if (burst_start_addr == 4'd10) begin
+                    end else if (burst_start_addr == CAM_GREEN) begin
                         // camera average green (single nibble)
-                        nib_base   <= 4'd10;
+                        nib_base   <= CAM_GREEN;
                         rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_green_sync1};
                     end else if (burst_start_addr >= LIVE_BASE &&
-                                 burst_start_addr <  LIVE_BASE + 4'd4) begin
+                                 burst_start_addr <  LIVE_BASE + 4'h4) begin
                         // live selected-channel value (16 bits, 4 nibbles)
                         nib_base <= LIVE_BASE;
                         if (burst_start_addr == LIVE_BASE)
@@ -481,7 +626,7 @@ module FSMC #(
                         rd_holding <= {{(ENTRY_BITS-16){1'b0}}, status_word};
                     end else begin
                         // unused addresses - replay whatever is in rd_holding
-                        nib_base <= 4'd0;
+                        nib_base <= 4'h0;
                     end
                     // uniform short bounded latency path (no long NWAIT stall)
                     if (LATENCY_CYCLES <= 1)
@@ -575,6 +720,7 @@ module FSMC #(
         .data_in     (psram_wr_data),       // arbiter: ADC sample or debug word
         .wr_toggle   (psram_wr_toggle),     // arbiter drives pushes (sys_clk)
         .rd_toggle   (pf_rd_toggle),        // prefetch engine drives pops (sys_clk)
+        .fifo_clear  (psram_fifo_clear),    // acquisition (re)start: rewind pointers
         .data_out    (psram_data_out),
         .data_valid  (psram_data_valid),
         .fifo_full   (psram_fifo_full),
