@@ -17,6 +17,7 @@ extern SemaphoreHandle_t capture_semaphore;
 extern SRAM_HandleTypeDef hsram1;
 
 int16_t sound[SOUND_ITEMS];
+uint16_t sound_buff_idx = 0;
 extern uint8_t is_sound_requested;
 int ncallbacks = 0;
 int16_t adc_values[4] = {0};
@@ -85,6 +86,7 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 #define BASE   ((volatile uint8_t *)PSRAM_BASE_ADDR)
 #define PSRAM_PTR(addr)   ((volatile uint8_t *)(PSRAM_BASE_ADDR + (addr)))
 #define ST_DATA_READY   0x08            // status bit3
+#define ST_FIFO_FULL    0x01            // status bit1
 
 static inline uint16_t psram_read_word(void) {
     volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
@@ -99,7 +101,9 @@ static inline uint16_t psram_read_word(void) {
 void task_retr_main_func(void* pvParameters) {
 ////	vTaskSuspend(NULL);	// Do not start execution until requested
 	uint32_t notification = 0;
+	uint8_t is_done = 0;
 	BaseType_t result;
+	uint8_t usb_sound_response[4];
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
 	BASE[0xF] = 1;                   // Select ADC to be reported as periodic
@@ -127,6 +131,8 @@ void task_retr_main_func(void* pvParameters) {
 			}
 
 			state = REQUESTED;
+			sound_buff_idx = 0;
+			is_done = 0;
 			BASE[0xE] = 1; // Reset PSRAM FIFO and request polling
 
 
@@ -137,36 +143,63 @@ void task_retr_main_func(void* pvParameters) {
 
 
 		case REQUESTED:
-			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
-			if (is_suspend_signal(notification, pdPASS)) {
-				state = SLEEPING;
+			// Collect the signal
+		    volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
+		    if (!(p[4] & ST_DATA_READY) && !(p[4] & ST_FIFO_FULL)) {						  // If fifo is not full, wait until data is available
+		    	taskYIELD();
+		    	break;
+		    }
+		    else if (!(p[4] & ST_DATA_READY) && (p[4] & ST_FIFO_FULL)) {					  // No more data to collect. Activate sound transmission
+		    	state = CAPTURED;
+				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+				is_done = 1;
 				break;
-			}
-			if (notification != 1 << CAPTURED) {
-				break;	// This should never happen
-			}
+		    }
+		    while (p[4] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
+		        uint16_t w =  (p[0] & 0xF);
+		        w |= (uint16_t)(p[1] & 0xF) << 4;
+		        w |= (uint16_t)(p[2] & 0xF) << 8;
+		        w |= (uint16_t)(p[3] & 0xF) << 12;
+		        sound[sound_buff_idx] = (int16_t)w;
+		        sound_buff_idx++;
+		    }
+		    if (sound_buff_idx >= SOUND_ITEMS) {											  // TX buffer is full. Activate sound transmission
+		    	state = CAPTURED;
+				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+		    }
+		    break;
 
-			// Activate sound transmission
-			state = CAPTURED;
-			uint16_t transfer_len = SOUND_ITEMS*2;
-			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), transfer_len);
+
+//			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
+//			if (is_suspend_signal(notification, pdPASS)) {
+//				state = SLEEPING;
+//				break;
+//			}
+//			if (notification != 1 << CAPTURED) {
+//				break;	// This should never happen
+//			}
 
 		case CAPTURED:
+			*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
+			*(usb_sound_response + 2) = is_done;
+			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
+
 			result = xTaskNotifyWait(0, 0xFFFFFFFF, &notification, xMaxBlockTime);
 			if (is_suspend_signal(notification, result)) {
 				state = SLEEPING;
-				xSemaphoreGive(capture_semaphore);
+//				xSemaphoreGive(capture_semaphore);
 				break;
 			}
 			if (notification != 1 << SENT) {
 				break;	// This should never happen
 			}
 			state = SENT;
-			xSemaphoreGive(capture_semaphore);
+//			xSemaphoreGive(capture_semaphore);
 			break;
 
 		case SENT:
-			state = READY;
+			if (is_done) state = READY;
+			else state = REQUESTED;
 			break;
 		}
 	}
