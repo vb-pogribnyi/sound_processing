@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "USBSample"
+rootProject.name = "SoundLocator"
 include(":app")
  

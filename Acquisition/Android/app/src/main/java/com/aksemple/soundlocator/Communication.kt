@@ -56,7 +56,7 @@ import java.io.RandomAccessFile
 import kotlin.collections.mutableListOf
 import kotlin.math.sin
 
-const val TAG = "USBSample_comm"
+const val TAG = "SoundLocator_comm"
 private const val ACTION_USB_PERMISSION = "com.aksemple.soundlocator.USB_PERMISSION"
 
 data class CaptureData (

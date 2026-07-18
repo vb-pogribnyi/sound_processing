@@ -532,6 +532,11 @@ fun Greeting(modifier: Modifier = Modifier) {
                         }
                     }, modifier = Modifier.weight(1.0f)) { Text("Stop") }
                 }
+                Row() {
+                    Button(onClick = {
+                        // TODO: Open database browser
+                    }, modifier = Modifier.weight(1.0f)) { Text("Browse Database") }
+                }
                 Row(Modifier.fillMaxSize()) {
                     // Timing/debug info goes here
                     Column {
