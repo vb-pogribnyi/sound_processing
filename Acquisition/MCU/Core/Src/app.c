@@ -85,12 +85,19 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 #define PSRAM_BASE_ADDR   0x60000000UL
 #define BASE   ((volatile uint8_t *)PSRAM_BASE_ADDR)
 #define PSRAM_PTR(addr)   ((volatile uint8_t *)(PSRAM_BASE_ADDR + (addr)))
+// Status nibble is read at FSMC address 0xF (STAT_ADDR in FSMC.v). Reading any
+// other address (e.g. 0x4) returns FIFO-entry data nibbles, NOT these bits.
+//   bit0 = FIFO empty   bit1 = acq_full (sticky: capture auto-stopped when the
+//   FPGA FIFO filled)   bit2 = is_valid (PSRAM self-test ok)   bit3 = data_ready
+#define STATUS_ADDR     0xF
+#define ST_FIFO_EMPTY   0x01            // status bit0
+#define ST_FIFO_FULL    0x02            // status bit1 (acq_full: capture stopped)
+#define ST_IS_VALID     0x04            // status bit2
 #define ST_DATA_READY   0x08            // status bit3
-#define ST_FIFO_FULL    0x01            // status bit1
 
 static inline uint16_t psram_read_word(void) {
     volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
-    while (!(p[4] & ST_DATA_READY)) { }  // wait until a word is prefetched
+    while (!(p[STATUS_ADDR] & ST_DATA_READY)) { }  // wait until a word is prefetched
     uint16_t w =  (p[0] & 0xF);
     w |= (uint16_t)(p[1] & 0xF) << 4;
     w |= (uint16_t)(p[2] & 0xF) << 8;
@@ -145,17 +152,19 @@ void task_retr_main_func(void* pvParameters) {
 		case REQUESTED:
 			// Collect the signal
 		    volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
-		    if (!(p[4] & ST_DATA_READY) && !(p[4] & ST_FIFO_FULL)) {						  // If fifo is not full, wait until data is available
+		    uint8_t status = p[STATUS_ADDR];
+		    if (!(status & ST_DATA_READY) && !(status & ST_FIFO_FULL)) {						  // If fifo is not full, wait until data is available
 		    	taskYIELD();
 		    	break;
 		    }
-		    else if (!(p[4] & ST_DATA_READY) && (p[4] & ST_FIFO_FULL)) {					  // No more data to collect. Activate sound transmission
+		    else if (!(status & ST_DATA_READY) && (status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {					  // No more data to collect. Activate sound transmission
 		    	state = CAPTURED;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+				sound_buff_idx = 0;
 				is_done = 1;
 				break;
 		    }
-		    while (p[4] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
+		    while (p[STATUS_ADDR] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
 		        uint16_t w =  (p[0] & 0xF);
 		        w |= (uint16_t)(p[1] & 0xF) << 4;
 		        w |= (uint16_t)(p[2] & 0xF) << 8;
@@ -166,6 +175,7 @@ void task_retr_main_func(void* pvParameters) {
 		    if (sound_buff_idx >= SOUND_ITEMS) {											  // TX buffer is full. Activate sound transmission
 		    	state = CAPTURED;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+				sound_buff_idx = 0;
 		    }
 		    break;
 
