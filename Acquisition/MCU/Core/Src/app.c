@@ -160,8 +160,11 @@ void task_retr_main_func(void* pvParameters) {
 		    else if (!(status & ST_DATA_READY) && (status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {					  // No more data to collect. Activate sound transmission
 		    	state = CAPTURED;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
-				sound_buff_idx = 0;
 				is_done = 1;
+				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
+				*(usb_sound_response + 2) = is_done;
+				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
+				sound_buff_idx = 0;
 				break;
 		    }
 		    while (p[STATUS_ADDR] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
@@ -175,6 +178,9 @@ void task_retr_main_func(void* pvParameters) {
 		    if (sound_buff_idx >= SOUND_ITEMS) {											  // TX buffer is full. Activate sound transmission
 		    	state = CAPTURED;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
+				*(usb_sound_response + 2) = is_done;
+				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
 				sound_buff_idx = 0;
 		    }
 		    break;
@@ -190,9 +196,6 @@ void task_retr_main_func(void* pvParameters) {
 //			}
 
 		case CAPTURED:
-			*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
-			*(usb_sound_response + 2) = is_done;
-			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
 
 			result = xTaskNotifyWait(0, 0xFFFFFFFF, &notification, xMaxBlockTime);
 			if (is_suspend_signal(notification, result)) {

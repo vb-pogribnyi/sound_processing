@@ -22,6 +22,7 @@ import androidx.core.content.FileProvider
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Room
@@ -71,7 +72,7 @@ data class CaptureData (
     val note: String
 )
 
-@Entity(tableName = "sound_data")
+@Entity(tableName = "sound_data", indices = [Index(value = ["captureId"])])
 data class SoundData (
     @PrimaryKey(autoGenerate=true) val id: Long = 0,
     val timestamp: Long,
@@ -88,6 +89,9 @@ interface SoundDataDao {
 
     @Query("SELECT * FROM sound_data WHERE captureId = :captureId")
     fun loadByCaptureID(captureId: Int): Array<SoundData>
+
+    @Query("SELECT * FROM sound_data WHERE captureId = :captureId ORDER BY id ASC")
+    suspend fun loadByCaptureIdOrdered(captureId: Long): List<SoundData>
 }
 @Entity(tableName = "captures")
 data class Capture (
@@ -101,13 +105,28 @@ data class Capture (
     val micsAngle: Int,
     val note: String
 )
+/** Lightweight projection for the capture browser list (right pane). */
+data class CaptureListItem(
+    val id: Long,
+    val timestamp: Long,
+    val isOverrun: Int,
+    val soundCount: Int
+)
 @Dao
 interface CapturesDao {
     @Insert
     fun insert(row: Capture): Long
+
+    /** Latest-first page of captures, each with its sound_data row count. */
+    @Query(
+        "SELECT c.id AS id, c.timestamp AS timestamp, c.isOverrun AS isOverrun, " +
+        "(SELECT COUNT(*) FROM sound_data s WHERE s.captureId = c.id) AS soundCount " +
+        "FROM captures c ORDER BY c.timestamp DESC, c.id DESC LIMIT :limit OFFSET :offset"
+    )
+    suspend fun getCapturesPaged(limit: Int, offset: Int): List<CaptureListItem>
 }
 
-@Database(entities = [SoundData::class, Capture::class], version=1)
+@Database(entities = [SoundData::class, Capture::class], version=2)
 abstract class AppDatabase: RoomDatabase()
 {
     abstract fun soundDataDao(): SoundDataDao
@@ -121,7 +140,8 @@ abstract class AppDatabase: RoomDatabase()
                     context.applicationContext,
                     AppDatabase::class.java,
                     "sound_database.db"
-                ).build()
+                ).fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }
@@ -169,6 +189,8 @@ class Communication {
         var mainBytes = mutableIntStateOf(0)
         var traceBytes = mutableIntStateOf(0)
         var periodicBytes = mutableIntStateOf(0)
+        var mainReportedBytes = mutableIntStateOf(0)
+        var mainReceivedBytes = mutableIntStateOf(0)
         var interruptStatus = mutableStateOf("IntStatus")
         var interruptData = mutableStateOf("IntData")
 
@@ -199,8 +221,10 @@ class Communication {
 //        val im = DoubleArray(N)
 
         fun plotFFT(rows: MutableList<SoundData>) {
-            for (i in 0..N - 1) {
-                fftBuffer[i] = rows[i].value4.toFloat() / 10000;
+            // A packet usually carries far fewer than N samples; only fill what we have
+            // (indexing rows[i] up to N blindly threw and killed the record pipeline).
+            for (i in 0 until minOf(N, rows.size)) {
+                fftBuffer[i] = rows[i].value4.toFloat() / 10000
             }
         }
 
@@ -366,6 +390,7 @@ class Communication {
             )
             val buffer = ByteBuffer.wrap(readyStatusBytes).order(ByteOrder.LITTLE_ENDIAN)
             val sizeAvailable = buffer.short.toInt() and 0xFFFF
+            mainReportedBytes.intValue = sizeAvailable
             val nFails = readyStatusBytes[2]
             val nPeriodicOverflows = readyStatusBytes[2]
             val timeBLKStart = System.currentTimeMillis()
@@ -376,6 +401,7 @@ class Communication {
                     sizeAvailable,
                     450
                 )
+            mainReceivedBytes.intValue = transferResult
             val timeEnd = System.currentTimeMillis()
             if (transferResult > 0) {
                 if (isRecord) {
@@ -628,19 +654,24 @@ class Communication {
                 soundDaoJob = defaultScope.launch {
                     while (isActive) {
                         for (packet in channel) {
-                            val capture = Capture(
-                                timestamp = packet.timestamp,
-                                touchX = packet.touchX,
-                                touchY = packet.touchY,
-                                isOverrun = packet.isOverrun,
-                                motor1Val = packet.motor1Val,
-                                motor2Val = packet.motor2Val,
-                                micsAngle = packet.micsAngle,
-                                note = packet.note
-                            )
-                            val captureId = capturesDao.insert(capture)
-                            val rows = parsePacket(packet.bytes, captureId)
-                            soundDao.insert(rows)
+                            try {
+                                val capture = Capture(
+                                    timestamp = packet.timestamp,
+                                    touchX = packet.touchX,
+                                    touchY = packet.touchY,
+                                    isOverrun = packet.isOverrun,
+                                    motor1Val = packet.motor1Val,
+                                    motor2Val = packet.motor2Val,
+                                    micsAngle = packet.micsAngle,
+                                    note = packet.note
+                                )
+                                val captureId = capturesDao.insert(capture)
+                                val rows = parsePacket(packet.bytes, captureId)
+                                soundDao.insert(rows)
+                            } catch (e: Exception) {
+                                // One malformed packet must not tear down the whole recorder.
+                                Log.e(TAG, "Failed to record capture packet", e)
+                            }
                         }
                     }
                 }

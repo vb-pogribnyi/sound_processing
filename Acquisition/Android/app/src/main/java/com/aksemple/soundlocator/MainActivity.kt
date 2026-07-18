@@ -418,6 +418,8 @@ fun Greeting(modifier: Modifier = Modifier) {
     var rqstTime by Communication.rqstTime
     var traceBytes by Communication.traceBytes
     var periodicBytes by Communication.periodicBytes
+    var mainReportedBytes by Communication.mainReportedBytes
+    var mainReceivedBytes by Communication.mainReceivedBytes
     var epMain by Communication.epMain
     var epTrace by Communication.epTrace
     var epPer by Communication.epPer
@@ -534,7 +536,7 @@ fun Greeting(modifier: Modifier = Modifier) {
                 }
                 Row() {
                     Button(onClick = {
-                        // TODO: Open database browser
+                        context.startActivity(Intent(context, BrowseDatabaseActivity::class.java))
                     }, modifier = Modifier.weight(1.0f)) { Text("Browse Database") }
                 }
                 Row(Modifier.fillMaxSize()) {
@@ -574,6 +576,28 @@ fun Greeting(modifier: Modifier = Modifier) {
                             Column(modifier = Modifier.fillMaxHeight().width(45.dp)) {
                                 Text(
                                     periodicBytes.toString(),
+                                    fontSize = 8.sp
+                                )
+                            }
+//                            Spacer(Modifier.width(spaceWidth))
+//                            Column(modifier = Modifier.fillMaxHeight().width(30.dp)) { Text("") }
+                        }
+//                    Trace/periodic transer sizes
+                        Row(modifier = Modifier.fillMaxWidth().height(debugRowHeight)) {
+                            Column(
+                                modifier = Modifier.fillMaxHeight().weight(1.0f)
+                            ) { Text("Main - reported/received") }
+                            Spacer(Modifier.width(spaceWidth))
+                            Column(modifier = Modifier.fillMaxHeight().width(45.dp)) {
+                                Text(
+                                    mainReportedBytes.toString(),
+                                    fontSize = 8.sp
+                                )
+                            }
+                            Spacer(Modifier.width(spaceWidth*2))
+                            Column(modifier = Modifier.fillMaxHeight().width(45.dp)) {
+                                Text(
+                                    mainReceivedBytes.toString(),
                                     fontSize = 8.sp
                                 )
                             }

@@ -39,6 +39,11 @@
                 android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
                 android:resource="@xml/device_filter" />
         </activity>
+        <activity
+            android:name=".BrowseDatabaseActivity"
+            android:exported="false"
+            android:label="Browse Database"
+            android:theme="@style/Theme.SoundLocator" />
     </application>
 
 </manifest>

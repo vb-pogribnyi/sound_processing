@@ -308,7 +308,7 @@ module led(
     // localparam FIFO_DEPTH  = 8;    // small for fast simulation
     localparam PSRAM_CLK_DIV     = 4;
     localparam PSRAM_SYS_CLK_MHZ = 50;
-    localparam PSRAM_FIFO_DEPTH  = 256;
+    localparam PSRAM_FIFO_DEPTH  = 16384;
     wire [nADC*16-1:0]     data_in;
     wire [nADC*16-1:0]     data_out;
     
