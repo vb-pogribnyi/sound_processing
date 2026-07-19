@@ -63,6 +63,7 @@ private const val ACTION_USB_PERMISSION = "com.aksemple.soundlocator.USB_PERMISS
 data class CaptureData (
     val bytes: ByteArray,
     val timestamp: Long,
+    val nChannels: Int,
     val touchX: Int?,
     val touchY: Int?,
     val isOverrun: Int,
@@ -72,15 +73,13 @@ data class CaptureData (
     val note: String
 )
 
-@Entity(tableName = "sound_data", indices = [Index(value = ["captureId"])])
+@Entity(tableName = "sound_data", indices = [Index(value = ["captureId", "channelId"])])
 data class SoundData (
     @PrimaryKey(autoGenerate=true) val id: Long = 0,
     val timestamp: Long,
     val captureId: Long,
-    val value1: Int,
-    val value2: Int,
-    val value3: Int,
-    val value4: Int,
+    val channelId: Int,
+    val value: Int,
 )
 @Dao
 interface SoundDataDao {
@@ -92,11 +91,18 @@ interface SoundDataDao {
 
     @Query("SELECT * FROM sound_data WHERE captureId = :captureId ORDER BY id ASC")
     suspend fun loadByCaptureIdOrdered(captureId: Long): List<SoundData>
+
+    @Query("SELECT * FROM sound_data WHERE captureId = :captureId AND channelId = :channelId ORDER BY id ASC")
+    suspend fun loadChannel(captureId: Long, channelId: Int): List<SoundData>
+
+    @Query("SELECT DISTINCT channelId FROM sound_data WHERE captureId = :captureId ORDER BY channelId ASC")
+    suspend fun channelsOf(captureId: Long): List<Int>
 }
 @Entity(tableName = "captures")
 data class Capture (
     @PrimaryKey(autoGenerate=true) val id: Long = 0,
     val timestamp: Long,
+    val nChannels: Int,
     val touchX: Int?,
     val touchY: Int?,
     val isOverrun: Int,
@@ -109,6 +115,7 @@ data class Capture (
 data class CaptureListItem(
     val id: Long,
     val timestamp: Long,
+    val nChannels: Int,
     val isOverrun: Int,
     val soundCount: Int
 )
@@ -119,14 +126,14 @@ interface CapturesDao {
 
     /** Latest-first page of captures, each with its sound_data row count. */
     @Query(
-        "SELECT c.id AS id, c.timestamp AS timestamp, c.isOverrun AS isOverrun, " +
+        "SELECT c.id AS id, c.timestamp AS timestamp, c.nChannels AS nChannels, c.isOverrun AS isOverrun, " +
         "(SELECT COUNT(*) FROM sound_data s WHERE s.captureId = c.id) AS soundCount " +
         "FROM captures c ORDER BY c.timestamp DESC, c.id DESC LIMIT :limit OFFSET :offset"
     )
     suspend fun getCapturesPaged(limit: Int, offset: Int): List<CaptureListItem>
 }
 
-@Database(entities = [SoundData::class, Capture::class], version=2)
+@Database(entities = [SoundData::class, Capture::class], version=3)
 abstract class AppDatabase: RoomDatabase()
 {
     abstract fun soundDataDao(): SoundDataDao
@@ -220,26 +227,31 @@ class Communication {
         val fftBuffer = FloatArray(N)
 //        val im = DoubleArray(N)
 
-        fun plotFFT(rows: MutableList<SoundData>) {
-            // A packet usually carries far fewer than N samples; only fill what we have
-            // (indexing rows[i] up to N blindly threw and killed the record pipeline).
-            for (i in 0 until minOf(N, rows.size)) {
-                fftBuffer[i] = rows[i].value4.toFloat() / 10000
+        fun plotFFT(samples: List<Int>) {
+            // Fill only what we have; a packet usually carries far fewer than N samples.
+            for (i in 0 until minOf(N, samples.size)) {
+                fftBuffer[i] = samples[i].toFloat() / 10000
             }
         }
 
-        fun parsePacket(packet: ByteArray, captureId: Long): List<SoundData> {
+        // Packet layout: interleaved 16-bit LE samples, nChannels values per time step
+        // (t0: ch0,ch1,..,chN-1; t1: ch0,..). Each (sample, channel) becomes one
+        // sound_data row; insertion order preserves each channel's sample sequence.
+        fun parsePacket(packet: ByteArray, captureId: Long, nChannels: Int): List<SoundData> {
             val rows = mutableListOf<SoundData>()
+            if (nChannels < 1) return rows
             val bb = ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN)
-            while (bb.remaining() >= 8) {
-                val v1 = bb.short.toInt()
-                val v2 = bb.short.toInt()
-                val v3 = bb.short.toInt()
-                val v4 = bb.short.toInt()
+            val ch0 = mutableListOf<Int>()          // channel 0 stream feeds the live FFT view
+            val bytesPerSample = nChannels * 2
+            while (bb.remaining() >= bytesPerSample) {
                 val ts = System.currentTimeMillis()
-                rows.add(SoundData(timestamp = ts, captureId = captureId, value1 = v1, value2 = v2, value3 = v3, value4 = v4))
+                for (ch in 0 until nChannels) {
+                    val v = bb.short.toInt()
+                    rows.add(SoundData(timestamp = ts, captureId = captureId, channelId = ch, value = v))
+                    if (ch == 0) ch0.add(v)
+                }
             }
-            plotFFT(rows)
+            plotFFT(ch0)
             return rows
         }
 
@@ -393,6 +405,9 @@ class Communication {
             mainReportedBytes.intValue = sizeAvailable
             val nFails = readyStatusBytes[2]
             val nPeriodicOverflows = readyStatusBytes[2]
+            // STM32 reports the channel count in byte 3 of the ready-status message
+            // (alongside the payload length in bytes 0-1). Default to 1 if unset (0).
+            val nChannels = (readyStatusBytes[3].toInt() and 0xFF).coerceAtLeast(1)
             val timeBLKStart = System.currentTimeMillis()
             val transferResult =
                 connection.bulkTransfer(
@@ -409,6 +424,7 @@ class Communication {
                         CaptureData(
                             bytes = bytes.copyOf(transferResult),
                             timestamp = System.currentTimeMillis(),
+                            nChannels = nChannels,
                             touchX = pointerPosIntl?.x?.toInt(),
                             touchY = pointerPosIntl?.y?.toInt(),
                             isOverrun = nFails.toInt(),
@@ -475,7 +491,7 @@ class Communication {
                     soundDataSim = soundDao.loadByCaptureID(captureId)
                     captureId += 1
                 }
-                plotFFT(soundDataSim.toMutableList())
+                plotFFT(soundDataSim.filter { it.channelId == 0 }.map { it.value })
             }
         }
 
@@ -657,6 +673,7 @@ class Communication {
                             try {
                                 val capture = Capture(
                                     timestamp = packet.timestamp,
+                                    nChannels = packet.nChannels,
                                     touchX = packet.touchX,
                                     touchY = packet.touchY,
                                     isOverrun = packet.isOverrun,
@@ -666,7 +683,7 @@ class Communication {
                                     note = packet.note
                                 )
                                 val captureId = capturesDao.insert(capture)
-                                val rows = parsePacket(packet.bytes, captureId)
+                                val rows = parsePacket(packet.bytes, captureId, packet.nChannels)
                                 soundDao.insert(rows)
                             } catch (e: Exception) {
                                 // One malformed packet must not tear down the whole recorder.

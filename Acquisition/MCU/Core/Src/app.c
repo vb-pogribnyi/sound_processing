@@ -24,6 +24,7 @@ int16_t adc_values[4] = {0};
 extern uint8_t adc_fstatus;
 
 uint8_t usb_sound_response[4];
+uint8_t num_adcs = 2;
 #define PERIODIC_BUFFER 1024*2
 #define SEGGER_BUFFER 1024*4
 uint8_t segger_usb_buf[SEGGER_BUFFER] = {0};
@@ -110,7 +111,6 @@ void task_retr_main_func(void* pvParameters) {
 	uint32_t notification = 0;
 	uint8_t is_done = 0;
 	BaseType_t result;
-	uint8_t usb_sound_response[4];
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
 	BASE[0xF] = 1;                   // Select ADC to be reported as periodic
@@ -163,6 +163,7 @@ void task_retr_main_func(void* pvParameters) {
 				is_done = 1;
 				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
 				*(usb_sound_response + 2) = is_done;
+				*(usb_sound_response + 3) = num_adcs;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
 				sound_buff_idx = 0;
 				break;
@@ -180,6 +181,7 @@ void task_retr_main_func(void* pvParameters) {
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
 				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
 				*(usb_sound_response + 2) = is_done;
+				*(usb_sound_response + 3) = num_adcs;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
 				sound_buff_idx = 0;
 		    }
