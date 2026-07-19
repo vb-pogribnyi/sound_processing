@@ -96,6 +96,17 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 #define ST_IS_VALID     0x04            // status bit2
 #define ST_DATA_READY   0x08            // status bit3
 
+// --- FPGA/FSMC access serialization -----------------------------------------
+// One logical FPGA read spans several byte accesses that share a single holding
+// register inside the FPGA (only addr 0x0 reloads it; 0x1.. replay it). If the
+// TIM3 periodic ISR reads the FPGA (0x9-0xE) in the middle of the drain task's
+// nibble reads it overwrites that register and corrupts the in-progress sample.
+// Bracket every multi-access FPGA read so no other context can interleave. Uses
+// PRIMASK save/restore, so it is safe from both task and ISR context and keeps
+// TIM3 running (it is delayed by at most one bracketed read, ~1 us).
+#define FPGA_LOCK()    uint32_t _fpga_primask = __get_PRIMASK(); __disable_irq()
+#define FPGA_UNLOCK()  __set_PRIMASK(_fpga_primask)
+
 static inline uint16_t psram_read_word(void) {
     volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
     while (!(p[STATUS_ADDR] & ST_DATA_READY)) { }  // wait until a word is prefetched
@@ -169,10 +180,12 @@ void task_retr_main_func(void* pvParameters) {
 				break;
 		    }
 		    while (p[STATUS_ADDR] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
+		        FPGA_LOCK();                       // atomic vs the TIM3 periodic ISR's FPGA reads
 		        uint16_t w =  (p[0] & 0xF);
 		        w |= (uint16_t)(p[1] & 0xF) << 4;
 		        w |= (uint16_t)(p[2] & 0xF) << 8;
 		        w |= (uint16_t)(p[3] & 0xF) << 12;
+		        FPGA_UNLOCK();
 		        sound[sound_buff_idx] = (int16_t)w;
 		        sound_buff_idx++;
 		    }
@@ -222,13 +235,20 @@ void task_retr_main_func(void* pvParameters) {
 
 void capture_periodic() {
 
+	FPGA_LOCK();                           // atomic vs the sound-drain task's FPGA reads
 	current_sample = (BASE[0xB]&0xF) | (BASE[0xC]&0xF)<<4 | (BASE[0xD]&0xF)<<8 | (BASE[0xE]&0xF)<<12;
 	red   = (BASE[0x9] & 0xF);
 	green = (BASE[0xA] & 0xF);
+	FPGA_UNLOCK();
 
 	if (state != SLEEPING) {
-		periodic_signal[pbuff_idx++] = current_sample;
-		if (pbuff_idx >= PERIODIC_BUFFER*2) pbuff_idx = 0;
+		if (pbuff_idx >= 0 && pbuff_idx < PERIODIC_BUFFER) {
+			periodic_signal[pbuff_idx++] = current_sample;
+		} else if (pbuff_idx >= PERIODIC_BUFFER && pbuff_idx < PERIODIC_BUFFER*2) {
+			periodic_signal[pbuff_idx++] = current_sample;
+		}
+		if (pbuff_idx >= PERIODIC_BUFFER*2)
+			pbuff_idx = 0;
 	} else {
 		pbuff_idx = 0;
 	}

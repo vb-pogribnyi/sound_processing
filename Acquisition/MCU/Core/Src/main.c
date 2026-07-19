@@ -144,7 +144,7 @@ int main(void)
 
   SEGGER_SYSVIEW_Conf();
   NVIC_SetPriorityGrouping( 0 );
-//  SEGGER_SYSVIEW_Start();
+  SEGGER_SYSVIEW_Start();
 //  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)sound, SOUND_ITEMS);
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, SET);
   HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, SET);

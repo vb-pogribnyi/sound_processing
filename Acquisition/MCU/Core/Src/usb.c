@@ -483,7 +483,7 @@ void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd) {
 		if (is_first_half_ready) {
 			per_bytes_read = pbuff_idx*2;
 			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x84, (uint8_t*)(&(periodic_signal[0])), per_bytes_read);
-			pbuff_idx = 1024*4;
+			pbuff_idx = 1024*2;
 		} else {
 			per_bytes_read = (pbuff_idx - 1024*2) * 2;
 			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x84, (uint8_t*)(&(periodic_signal[1024*2])), per_bytes_read);
