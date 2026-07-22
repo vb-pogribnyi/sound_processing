@@ -493,6 +493,10 @@ fun Greeting(modifier: Modifier = Modifier) {
                     }, modifier = Modifier.weight(1.0f)) { Text("Start") }
                     Spacer(Modifier.width(spaceWidth))
                     Button(onClick = {
+                        Communication.readBulk(nIterations = 1)
+                    }, modifier = Modifier.weight(1.0f)) { Text("Single") }
+                    Spacer(Modifier.width(spaceWidth))
+                    Button(onClick = {
                         Communication.stopReadingBulk()
                         if (isTraceRequested > 0 && Communication.seggerFile != null) {
                             val uri = FileProvider.getUriForFile(

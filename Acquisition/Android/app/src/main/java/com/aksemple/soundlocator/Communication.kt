@@ -608,7 +608,7 @@ class Communication {
                             debugRaf = RandomAccessFile(debugWav, "rw")
                             writeWavHeader(debugRaf, 16000, 1, 16)
                         }
-                        while (isActive && (nIterations < 0 || iterationsPassed > nIterations)) {
+                        while (isActive && (nIterations < 0 || iterationsPassed < nIterations)) {
                             iterationsPassed += 1
                             val pointerPosIntl = pointerPosRel
                             doReadBulk(connection, pointerPosIntl)

@@ -7,6 +7,26 @@
 #include "SEGGER_SYSVIEW.h"
 #include "SEGGER_RTT.h"
 
+// --- SystemView markers for USB transfer events -----------------------------
+// Point markers dropped when each USB event happens, so the SystemView timeline
+// shows request arrivals and confirmed (DataIn) transmissions, and their order.
+#define SVM_REQ_SEGGER    1u   // REQUEST_SEGGER_TRACE control request arrived
+#define SVM_REQ_PERIODIC  2u   // REQUEST_PERIODIC_SIGNAL control request arrived
+#define SVM_REQ_MAIN      3u   // main transfer request arrived (EP2 DataOut)
+#define SVM_TX_MAIN       4u   // main sound transmit confirmed (EP1 DataIn)
+#define SVM_TX_SEGGER     5u   // segger trace transmit confirmed (EP3 DataIn)
+#define SVM_TX_PERIODIC   6u   // periodic sound transmit confirmed (EP4 DataIn)
+
+static void usb_sysview_name_markers(void) {
+    SEGGER_SYSVIEW_NameMarker(SVM_REQ_SEGGER,   "REQ_SEGGER_TRACE");
+    SEGGER_SYSVIEW_NameMarker(SVM_REQ_PERIODIC, "REQ_PERIODIC");
+    SEGGER_SYSVIEW_NameMarker(SVM_REQ_MAIN,     "REQ_MAIN_int");
+    SEGGER_SYSVIEW_NameMarker(SVM_TX_MAIN,      "TX_MAIN");
+    SEGGER_SYSVIEW_NameMarker(SVM_TX_SEGGER,    "TX_SEGGER");
+    SEGGER_SYSVIEW_NameMarker(SVM_TX_PERIODIC,  "TX_PERIODIC");
+    SEGGER_SYSVIEW_NameMarker(7u,               "STATE_CAPTURED");   // app.c SVM_STATE_CAPTURED
+}
+
 extern PCD_HandleTypeDef hpcd_USB_OTG_HS;
 uint8_t is_usb_configured = 0;
 uint8_t is_reads_started = 0;
@@ -449,6 +469,7 @@ void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd) {
 //		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 
 		SEGGER_SYSVIEW_Start();
+		usb_sysview_name_markers();   // name markers now that recording is enabled
 		is_segger_tx = 0;
 
 		HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0, 0, 0);
@@ -468,6 +489,7 @@ void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd) {
 //		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 
 
+		SEGGER_SYSVIEW_Mark(SVM_REQ_SEGGER);
 		trace_bytes_read = transmit_segger_data();
 		HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0, (uint8_t*)&trace_bytes_read, 2); // Respond to the control request
 
@@ -479,6 +501,7 @@ void HAL_PCD_SetupStageCallback(PCD_HandleTypeDef *hpcd) {
 //		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 
 
+		SEGGER_SYSVIEW_Mark(SVM_REQ_PERIODIC);
 		uint8_t is_first_half_ready = pbuff_idx >= 1024*2 ? 0 : 1;
 		if (is_first_half_ready) {
 			per_bytes_read = pbuff_idx*2;
@@ -508,6 +531,7 @@ void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum) {
 	if (epnum == 2) {
 		HAL_PCD_EP_Receive(hpcd, 2, 0, 0);
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		SEGGER_SYSVIEW_Mark(SVM_REQ_MAIN);
 		xTaskNotifyFromISR(task_retr_main, 1 << REQUESTED, eSetBits, &xHigherPriorityTaskWoken);
 		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 //		// Activate sound transmission
@@ -547,10 +571,12 @@ void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum) {
 //		is_transmitting_half = 4;  // Do not initiate transmit until interrupt request arrives
 //		SEGGER_SYSVIEW_OnTaskStopExec();
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		SEGGER_SYSVIEW_Mark(SVM_TX_MAIN);
 		xTaskNotifyFromISR(task_retr_main, 1 << SENT, eSetBits, &xHigherPriorityTaskWoken);
 		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 	}
 	if (epnum == 3)		{
+		SEGGER_SYSVIEW_Mark(SVM_TX_SEGGER);
 		is_reads_started = 1;
 		n_trans++;
 		is_segger_tx = 0;
@@ -560,6 +586,7 @@ void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum) {
 //		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 	}
 	if (epnum == 4)		{
+		SEGGER_SYSVIEW_Mark(SVM_TX_PERIODIC);
 		is_periodic_transmitting = 0;
 //		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 //		xTaskNotifyFromISR(task_retr_periodic, 1 << PERIODIC_SENT, eSetBits, &xHigherPriorityTaskWoken);

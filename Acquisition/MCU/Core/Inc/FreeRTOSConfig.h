@@ -168,6 +168,23 @@ standard names. */
 
 /* USER CODE BEGIN Defines */
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+
+/* --- SEGGER SystemView <-> FreeRTOS integration (official method, UM08027) ---
+ * Including this header at the end of FreeRTOSConfig.h defines the trace* macros
+ * that hook the kernel into SystemView: task create / switch / ready / delete and
+ * all queue/semaphore/notify API events. The task list is reported automatically
+ * (traceTASK_CREATE -> SYSVIEW_SendTaskInfo); no manual task registration and no
+ * per-ISR enter/exit hooks are required for the RTOS view. */
+#define INCLUDE_xTaskGetIdleTaskHandle   1
+#include "SEGGER_SYSVIEW_FreeRTOS.h"
+/* This build Conf()'s + Start()'s SystemView explicitly in main() and streams the
+ * recording out over USB (no J-Link host to issue the start). The header defines
+ * traceSTART() = SEGGER_SYSVIEW_Conf(), which the scheduler runs on start-up; that
+ * re-runs SEGGER_SYSVIEW_Init() -> EnableState = 0 (SEGGER_SYSVIEW.c) and would
+ * silently DISABLE the already-running recorder. Neutralize it so recording stays
+ * on after the scheduler starts. */
+#undef  traceSTART
+#define traceSTART()
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

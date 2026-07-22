@@ -107,6 +107,9 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 #define FPGA_LOCK()    uint32_t _fpga_primask = __get_PRIMASK(); __disable_irq()
 #define FPGA_UNLOCK()  __set_PRIMASK(_fpga_primask)
 
+// SystemView marker for the sound task entering CAPTURED (named in usb.c).
+#define SVM_STATE_CAPTURED 7u
+
 static inline uint16_t psram_read_word(void) {
     volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
     while (!(p[STATUS_ADDR] & ST_DATA_READY)) { }  // wait until a word is prefetched
@@ -170,6 +173,7 @@ void task_retr_main_func(void* pvParameters) {
 		    }
 		    else if (!(status & ST_DATA_READY) && (status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {					  // No more data to collect. Activate sound transmission
 		    	state = CAPTURED;
+				SEGGER_SYSVIEW_Mark(SVM_STATE_CAPTURED);
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
 				is_done = 1;
 				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
@@ -191,6 +195,7 @@ void task_retr_main_func(void* pvParameters) {
 		    }
 		    if (sound_buff_idx >= SOUND_ITEMS) {											  // TX buffer is full. Activate sound transmission
 		    	state = CAPTURED;
+				SEGGER_SYSVIEW_Mark(SVM_STATE_CAPTURED);
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
 				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
 				*(usb_sound_response + 2) = is_done;
