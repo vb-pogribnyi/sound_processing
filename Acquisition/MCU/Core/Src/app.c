@@ -139,6 +139,11 @@ void task_retr_main_func(void* pvParameters) {
 
 	BASE[0xF] = 1;                   // Select ADC to be reported as periodic
 
+	// The sub-ms drain timeout below uses the DWT cycle counter; ensure it runs
+	// (SEGGER_SYSVIEW_Conf() also enables it, but do not depend on that here).
+	CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+	DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
 	for (;;) {
 		// -------------------------- Wait for request -----------------------------
 		switch (state) {
@@ -186,15 +191,32 @@ void task_retr_main_func(void* pvParameters) {
 			// never free-run - the next chunk waits for the next request.
 			volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
 			sound_buff_idx = 0;
-			while ((p[STATUS_ADDR] & ST_DATA_READY) && sound_buff_idx < SOUND_ITEMS) {
-				FPGA_LOCK();                       // atomic vs the TIM3 periodic ISR's FPGA reads
-				uint16_t w =  (p[0] & 0xF);
-				w |= (uint16_t)(p[1] & 0xF) << 4;
-				w |= (uint16_t)(p[2] & 0xF) << 8;
-				w |= (uint16_t)(p[3] & 0xF) << 12;
-				FPGA_UNLOCK();
-				sound[sound_buff_idx] = (int16_t)w;
-				sound_buff_idx++;
+			// Drain until the buffer is full. When the FPGA has not produced the next
+			// sample yet (e.g. prefetch latency), wait for it - but never block more than
+			// 1 ms on a single gap. If the capture has finished (acq_full and FIFO drained)
+			// no more data will ever come, so flag is_done and stop immediately.
+			const uint32_t drain_gap_timeout = SystemCoreClock / 1000u;   // 1 ms in CPU cycles
+			uint32_t last_sample_cycles = DWT->CYCCNT;
+			while (sound_buff_idx < 256) {
+//			while (sound_buff_idx < SOUND_ITEMS) {
+				uint8_t status = p[STATUS_ADDR];
+				if (status & ST_DATA_READY) {
+					FPGA_LOCK();                   // atomic vs the TIM3 periodic ISR's FPGA reads
+					uint16_t w =  (p[0] & 0xF);
+					w |= (uint16_t)(p[1] & 0xF) << 4;
+					w |= (uint16_t)(p[2] & 0xF) << 8;
+					w |= (uint16_t)(p[3] & 0xF) << 12;
+					FPGA_UNLOCK();
+					sound[sound_buff_idx] = (int16_t)w;
+					sound_buff_idx++;
+					last_sample_cycles = DWT->CYCCNT;   // reset the gap timer on each sample
+				} else if ((status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {
+					is_done = 1;                    // capture finished and fully drained
+					capture_active = 0;             // next request re-arms a fresh capture
+					break;                          // no more data will ever come - stop now
+				} else if ((DWT->CYCCNT - last_sample_cycles) > drain_gap_timeout) {
+					break;                          // no new sample for 1 ms - stop waiting
+				}
 			}
 			// Capture is finished once the FPGA auto-stopped (acq_full) and the FIFO is
 			// fully drained; the NEXT request then re-arms a fresh capture.

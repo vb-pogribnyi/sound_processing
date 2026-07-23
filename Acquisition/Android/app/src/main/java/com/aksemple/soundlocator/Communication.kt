@@ -37,6 +37,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -687,9 +688,14 @@ class Communication {
                                     micsAngle = packet.micsAngle,
                                     note = packet.note
                                 )
-                                val captureId = capturesDao.insert(capture)
-                                val rows = parsePacket(packet.bytes, captureId, packet.nChannels)
-                                soundDao.insert(rows)
+                                // Finish the whole DB write even if the recording job is
+                                // cancelled mid-insert - otherwise a small single-packet
+                                // capture loses its sound_data (Capture row + FFT already ran).
+                                withContext(NonCancellable) {
+                                    val captureId = capturesDao.insert(capture)
+                                    val rows = parsePacket(packet.bytes, captureId, packet.nChannels)
+                                    soundDao.insert(rows)
+                                }
                             } catch (e: Exception) {
                                 // One malformed packet must not tear down the whole recorder.
                                 Log.e(TAG, "Failed to record capture packet", e)
