@@ -42,6 +42,15 @@ SRetrieval state = SLEEPING;
 SeggerStatus segger_state = SEGGER_SLEEPING;
 PeriodicStatus periodic_state = SEGGER_SLEEPING;
 
+// --- Debug counters for the request/response protocol (watch live in debugger).
+// Healthy invariants: n_tx81 == n_sent (every transmitted chunk is read) and
+// n_req advances 1:1 with served chunks. A divergence localizes the stall.
+volatile uint32_t n_req      = 0;   // 0x01 requests received (USB DataOut ep2)
+volatile uint32_t n_tx81     = 0;   // main-sound chunks transmitted on 0x81
+volatile uint32_t n_sent     = 0;   // 0x81 reads confirmed (USB DataIn ep1)
+volatile uint32_t n_captured = 0;   // new captures armed
+volatile uint32_t n_sleep    = 0;   // transitions to SLEEPING
+
 
 int ncaptures = 0;
 int captures_requested = 0;
@@ -79,7 +88,7 @@ void drive_cam_indicator() {
 
 int is_suspend_signal(uint32_t notification, BaseType_t result) {
 	if (result == pdFAIL) return 1;
-	if (notification == 1 << SLEEPING) return 1;
+	if (notification & (1 << SLEEPING)) return 1;   // bit test, not exact match
 	return 0;
 }
 
@@ -124,6 +133,7 @@ void task_retr_main_func(void* pvParameters) {
 ////	vTaskSuspend(NULL);	// Do not start execution until requested
 	uint32_t notification = 0;
 	uint8_t is_done = 0;
+	uint8_t capture_active = 0;   // 0 -> next request arms a new capture
 	BaseType_t result;
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
@@ -135,26 +145,32 @@ void task_retr_main_func(void* pvParameters) {
 		case SLEEPING:
 			// TODO: Tell FPGA we're not interested in values, buffer may be not contiguous
 			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
-			if (notification != 1 << READY) {
+			if (!(notification & (1 << READY))) {
 				notification = 0;
-				break;	// This should never happen
+				break;	// ignore anything that is not a wake
 			}
+			capture_active = 0;   // fresh session: next request arms a new capture
 			state = READY;
 
 		case READY:
+			// 1:1 protocol: wait for ONE request, then serve exactly ONE chunk.
 			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
 			if (is_suspend_signal(notification, pdPASS)) {
 				state = SLEEPING;
+				n_sleep++;
 				break;
 			}
-			if (notification != 1 << REQUESTED) {
-				break;	// This should never happen
+			if (!(notification & (1 << REQUESTED))) {
+				break;	// not a request (e.g. a stray SENT) - keep waiting
 			}
-
+			if (!capture_active) {          // start a NEW capture on the first request
+				BASE[0xE] = 1;              // arm: rewind FPGA FIFO, enable polling
+				sound_buff_idx = 0;
+				is_done = 0;
+				capture_active = 1;
+				n_captured++;
+			}
 			state = REQUESTED;
-			sound_buff_idx = 0;
-			is_done = 0;
-			BASE[0xE] = 1; // Reset PSRAM FIFO and request polling
 
 
 //			if (xSemaphoreTake(capture_semaphore, xMaxBlockTime) != pdTRUE) {
@@ -164,46 +180,44 @@ void task_retr_main_func(void* pvParameters) {
 
 
 		case REQUESTED:
-			// Collect the signal
-		    volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
-		    uint8_t status = p[STATUS_ADDR];
-		    if (!(status & ST_DATA_READY) && !(status & ST_FIFO_FULL)) {						  // If fifo is not full, wait until data is available
-		    	taskYIELD();
-		    	break;
-		    }
-		    else if (!(status & ST_DATA_READY) && (status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {					  // No more data to collect. Activate sound transmission
-		    	state = CAPTURED;
-				SEGGER_SYSVIEW_Mark(SVM_STATE_CAPTURED);
-				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
+		{
+			// 1:1 protocol: serve exactly ONE chunk for THIS request. Drain whatever
+			// the FPGA FIFO has available right now (0 .. one buffer), then respond;
+			// never free-run - the next chunk waits for the next request.
+			volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
+			sound_buff_idx = 0;
+			while ((p[STATUS_ADDR] & ST_DATA_READY) && sound_buff_idx < SOUND_ITEMS) {
+				FPGA_LOCK();                       // atomic vs the TIM3 periodic ISR's FPGA reads
+				uint16_t w =  (p[0] & 0xF);
+				w |= (uint16_t)(p[1] & 0xF) << 4;
+				w |= (uint16_t)(p[2] & 0xF) << 8;
+				w |= (uint16_t)(p[3] & 0xF) << 12;
+				FPGA_UNLOCK();
+				sound[sound_buff_idx] = (int16_t)w;
+				sound_buff_idx++;
+			}
+			// Capture is finished once the FPGA auto-stopped (acq_full) and the FIFO is
+			// fully drained; the NEXT request then re-arms a fresh capture.
+			uint8_t status = p[STATUS_ADDR];
+			if (!(status & ST_DATA_READY) && (status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {
 				is_done = 1;
-				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
-				*(usb_sound_response + 2) = is_done;
-				*(usb_sound_response + 3) = num_adcs;
-				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
-				sound_buff_idx = 0;
-				break;
-		    }
-		    while (p[STATUS_ADDR] & ST_DATA_READY && sound_buff_idx < SOUND_ITEMS) {		              // While data is available, read it.
-		        FPGA_LOCK();                       // atomic vs the TIM3 periodic ISR's FPGA reads
-		        uint16_t w =  (p[0] & 0xF);
-		        w |= (uint16_t)(p[1] & 0xF) << 4;
-		        w |= (uint16_t)(p[2] & 0xF) << 8;
-		        w |= (uint16_t)(p[3] & 0xF) << 12;
-		        FPGA_UNLOCK();
-		        sound[sound_buff_idx] = (int16_t)w;
-		        sound_buff_idx++;
-		    }
-		    if (sound_buff_idx >= SOUND_ITEMS) {											  // TX buffer is full. Activate sound transmission
-		    	state = CAPTURED;
-				SEGGER_SYSVIEW_Mark(SVM_STATE_CAPTURED);
+				capture_active = 0;
+			}
+			SEGGER_SYSVIEW_Mark(SVM_STATE_CAPTURED);
+			// Respond: main data on 0x81 (only when non-empty), status on 0x82.
+			if (sound_buff_idx > 0) {
+				n_tx81++;
 				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x81, (uint8_t*)(sound), sound_buff_idx*2);
-				*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
-				*(usb_sound_response + 2) = is_done;
-				*(usb_sound_response + 3) = num_adcs;
-				HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
-				sound_buff_idx = 0;
-		    }
-		    break;
+			}
+			*(uint16_t*)(usb_sound_response) = sound_buff_idx*2;
+			*(usb_sound_response + 2) = is_done;
+			*(usb_sound_response + 3) = num_adcs;
+			HAL_PCD_EP_Transmit(&hpcd_USB_OTG_HS, 0x82, usb_sound_response, 4);
+			// If we sent main data, wait for the host to read it (back-pressure) before
+			// serving the next request; if empty, just wait for the next request.
+			state = (sound_buff_idx > 0) ? CAPTURED : READY;
+			break;
+		}
 
 
 //			xTaskNotifyWait(0, 0xFFFFFFFF, &notification, portMAX_DELAY);
@@ -216,23 +230,22 @@ void task_retr_main_func(void* pvParameters) {
 //			}
 
 		case CAPTURED:
-
+			// Back-pressure: wait for the host to read the chunk (DataIn ep1 -> SENT),
+			// then wait for the next request. 1:1 - never free-run to the next chunk.
 			result = xTaskNotifyWait(0, 0xFFFFFFFF, &notification, xMaxBlockTime);
 			if (is_suspend_signal(notification, result)) {
 				state = SLEEPING;
-//				xSemaphoreGive(capture_semaphore);
+				n_sleep++;
 				break;
 			}
-			if (notification != 1 << SENT) {
-				break;	// This should never happen
+			if (notification & (1 << SENT)) {   // bit test: the chunk was read
+				state = READY;
 			}
-			state = SENT;
-//			xSemaphoreGive(capture_semaphore);
+			// otherwise (timeout handled above) stay in CAPTURED and re-wait
 			break;
 
 		case SENT:
-			if (is_done) state = READY;
-			else state = REQUESTED;
+			state = READY;   // 1:1 flow returns to READY directly; kept for completeness
 			break;
 		}
 	}

@@ -46,6 +46,8 @@ extern TaskHandle_t task_retr_main;
 extern TaskHandle_t task_send_segger;
 extern TaskHandle_t task_retr_periodic;
 extern uint8_t is_segger_tx;
+extern volatile uint32_t n_req;   // 0x01 requests received (DataOut ep2)
+extern volatile uint32_t n_sent;  // 0x81 reads confirmed (DataIn ep1)
 
 extern uint16_t periodic_signal[]; // Double buffer, each PERIODIC_BUFFER large of 2-byte values.
 extern uint16_t pbuff_idx;
@@ -532,6 +534,7 @@ void HAL_PCD_DataOutStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum) {
 		HAL_PCD_EP_Receive(hpcd, 2, 0, 0);
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 		SEGGER_SYSVIEW_Mark(SVM_REQ_MAIN);
+		n_req++;
 		xTaskNotifyFromISR(task_retr_main, 1 << REQUESTED, eSetBits, &xHigherPriorityTaskWoken);
 		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 //		// Activate sound transmission
@@ -572,6 +575,7 @@ void HAL_PCD_DataInStageCallback(PCD_HandleTypeDef *hpcd, uint8_t epnum) {
 //		SEGGER_SYSVIEW_OnTaskStopExec();
 		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 		SEGGER_SYSVIEW_Mark(SVM_TX_MAIN);
+		n_sent++;
 		xTaskNotifyFromISR(task_retr_main, 1 << SENT, eSetBits, &xHigherPriorityTaskWoken);
 		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 	}

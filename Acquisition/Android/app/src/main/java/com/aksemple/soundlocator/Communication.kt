@@ -409,13 +409,17 @@ class Communication {
             // (alongside the payload length in bytes 0-1). Default to 1 if unset (0).
             val nChannels = (readyStatusBytes[3].toInt() and 0xFF).coerceAtLeast(1)
             val timeBLKStart = System.currentTimeMillis()
+            // 1:1 protocol: the device transmits 0x81 only when it has data (size > 0).
+            // Skip the main read on an empty poll so we don't stall on a phantom transfer.
             val transferResult =
-                connection.bulkTransfer(
-                    bulkMainEndpoint,
-                    bytes,
-                    sizeAvailable,
-                    450
-                )
+                if (sizeAvailable > 0)
+                    connection.bulkTransfer(
+                        bulkMainEndpoint,
+                        bytes,
+                        sizeAvailable,
+                        450
+                    )
+                else 0
             mainReceivedBytes.intValue = transferResult
             val timeEnd = System.currentTimeMillis()
             if (transferResult > 0) {
@@ -436,9 +440,10 @@ class Communication {
                     )
                 }
                 bulkReadsSuccess.intValue += 1
-            } else {
-                bulkReadsFail.intValue += 1
+            } else if (sizeAvailable > 0) {
+                bulkReadsFail.intValue += 1   // device reported data but the read failed
             }
+            // else: empty poll (size 0) - not a failure, just no new data yet
             aroundTime = 0.7f * aroundTime + 0.3f * (loopStartTime - loopEndTime).toFloat()
 
             loopEndTime = System.currentTimeMillis()
