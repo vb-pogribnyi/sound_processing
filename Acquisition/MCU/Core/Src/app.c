@@ -137,7 +137,7 @@ void task_retr_main_func(void* pvParameters) {
 	BaseType_t result;
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
-	BASE[0xF] = 1;                   // Select ADC to be reported as periodic
+	BASE[0xF] = 0;                   // Select ADC to be reported as periodic
 
 	// The sub-ms drain timeout below uses the DWT cycle counter; ensure it runs
 	// (SEGGER_SYSVIEW_Conf() also enables it, but do not depend on that here).
@@ -197,19 +197,27 @@ void task_retr_main_func(void* pvParameters) {
 			// no more data will ever come, so flag is_done and stop immediately.
 			const uint32_t drain_gap_timeout = SystemCoreClock / 1000u;   // 1 ms in CPU cycles
 			uint32_t last_sample_cycles = DWT->CYCCNT;
-			while (sound_buff_idx < 256) {
-//			while (sound_buff_idx < SOUND_ITEMS) {
+			while (sound_buff_idx + num_adcs <= 256) {
+//			while (sound_buff_idx + num_adcs <= SOUND_ITEMS) {
 				uint8_t status = p[STATUS_ADDR];
 				if (status & ST_DATA_READY) {
+					// One FIFO entry holds ALL num_adcs channels as 4*num_adcs
+					// nibbles. Reading p[0] loads the whole entry into the FPGA's
+					// holding register (and prefetches the next); p[1..] just
+					// replay the remaining nibbles of THIS entry. So read every
+					// channel here (must stay atomic vs the TIM3 ISR, which would
+					// clobber the holding register with the live value) and store
+					// them interleaved: sound[] = ch0,ch1,..,chN-1,ch0,ch1,..
 					FPGA_LOCK();                   // atomic vs the TIM3 periodic ISR's FPGA reads
-					uint16_t w =  (p[0] & 0xF);
-					w |= (uint16_t)(p[1] & 0xF) << 4;
-					w |= (uint16_t)(p[2] & 0xF) << 8;
-					w |= (uint16_t)(p[3] & 0xF) << 12;
+					for (uint8_t ch = 0; ch < num_adcs; ch++) {
+						uint16_t w =  (p[ch*4 + 0] & 0xF);
+						w |= (uint16_t)(p[ch*4 + 1] & 0xF) << 4;
+						w |= (uint16_t)(p[ch*4 + 2] & 0xF) << 8;
+						w |= (uint16_t)(p[ch*4 + 3] & 0xF) << 12;
+						sound[sound_buff_idx++] = (int16_t)w;
+					}
 					FPGA_UNLOCK();
-					sound[sound_buff_idx] = (int16_t)w;
-					sound_buff_idx++;
-					last_sample_cycles = DWT->CYCCNT;   // reset the gap timer on each sample
+					last_sample_cycles = DWT->CYCCNT;   // reset the gap timer on each entry
 				} else if ((status & ST_FIFO_FULL) && (status & ST_FIFO_EMPTY)) {
 					is_done = 1;                    // capture finished and fully drained
 					capture_active = 0;             // next request re-arms a fresh capture
