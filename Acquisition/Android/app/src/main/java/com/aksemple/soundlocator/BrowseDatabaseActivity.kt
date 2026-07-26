@@ -93,6 +93,8 @@ class BrowseDatabaseActivity : ComponentActivity() {
         setContent {
             SoundLocatorTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    // A fresh composition on each entry -> the checkbox selection below
+                    // starts empty every time the activity is opened.
                     BrowseDatabaseScreen()
                 }
             }
@@ -110,57 +112,90 @@ private fun BrowseDatabaseScreen() {
     var isLoading by remember { mutableStateOf(false) }
     var endReached by remember { mutableStateOf(false) }
 
-    var selected by remember { mutableStateOf<CaptureListItem?>(null) }
-    // Per-channel sample arrays for the selected capture, loaded lazily on demand.
-    val channelData = remember { mutableStateMapOf<Int, IntArray>() }
-    val checkedChannels = remember { mutableStateListOf<Int>() }
-    var waveLoading by remember { mutableStateOf(false) }
-
-    fun loadChannelAsync(captureId: Long, ch: Int) {
-        if (channelData.containsKey(ch)) return
-        scope.launch {
-            try {
-                val vals = withContext(Dispatchers.IO) {
-                    db.soundDataDao().loadChannel(captureId, ch).map { it.value }.toIntArray()
-                }
-                // Ignore if the user moved on to another capture meanwhile.
-                if (selected?.id == captureId) channelData[ch] = vals
-            } catch (e: Exception) {
-                android.util.Log.e("BrowseDatabase", "Failed to load channel $ch of capture $captureId", e)
-            }
-        }
+    // Checked capture ids. Fresh (empty) on every entry into the activity.
+    val checkedIds = remember { mutableStateListOf<Long>() }
+    // Visualization spans the inclusive id range [min checked .. max checked]; ALL
+    // captures in that range are concatenated in arrival order, checked or not.
+    val rangeMin = checkedIds.minOrNull()
+    val rangeMax = checkedIds.maxOrNull()
+    val hasRange = rangeMin != null && rangeMax != null
+    val rangeKey = "${rangeMin ?: -1}-${rangeMax ?: -1}"
+    val rangeNChannels = remember(captures.size, rangeKey) {
+        captures.firstOrNull { it.id in checkedIds }?.nChannels ?: 0
     }
 
-    fun selectCapture(item: CaptureListItem) {
-        selected = item
+    // Concatenated per-channel data for the current range, loaded lazily per channel.
+    val channelData = remember { mutableStateMapOf<Int, IntArray>() }
+    var boundaries by remember { mutableStateOf(IntArray(0)) }   // sample indices where captures join
+    val checkedChannels = remember { mutableStateListOf<Int>() }
+    var waveLoading by remember { mutableStateOf(false) }
+    var loadedRange by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+
+    fun reloadForRange() {
+        val lo = checkedIds.minOrNull()
+        val hi = checkedIds.maxOrNull()
+        if (lo == null || hi == null) {
+            channelData.clear(); boundaries = IntArray(0); loadedRange = null; waveLoading = false
+            return
+        }
+        val nCh = captures.firstOrNull { it.id in checkedIds }?.nChannels ?: 1
+        if (checkedChannels.isEmpty()) {
+            checkedChannels.addAll(0 until minOf(DEFAULT_VISIBLE_CHANNELS, nCh))
+        } else {
+            checkedChannels.retainAll { it < nCh }
+        }
+        val range = lo to hi
+        loadedRange = range
         channelData.clear()
-        checkedChannels.clear()
-        val defaults = (0 until minOf(DEFAULT_VISIBLE_CHANNELS, item.nChannels)).toList()
-        checkedChannels.addAll(defaults)
         waveLoading = true
         scope.launch {
             try {
-                for (ch in defaults) {
+                // Boundaries from channel 0 (per-capture sample counts are equal across channels).
+                val counts = withContext(Dispatchers.IO) { db.soundDataDao().channelCountsInRange(lo, hi, 0) }
+                val bnds = ArrayList<Int>()
+                var acc = 0
+                for (i in 0 until (counts.size - 1)) { acc += counts[i].cnt; bnds.add(acc) }
+                if (loadedRange == range) boundaries = bnds.toIntArray()
+                for (ch in checkedChannels.toList()) {
                     val vals = withContext(Dispatchers.IO) {
-                        db.soundDataDao().loadChannel(item.id, ch).map { it.value }.toIntArray()
+                        db.soundDataDao().loadChannelRange(lo, hi, ch).map { it.value }.toIntArray()
                     }
-                    if (selected?.id == item.id) channelData[ch] = vals
+                    if (loadedRange == range) channelData[ch] = vals
                 }
             } catch (e: Exception) {
-                android.util.Log.e("BrowseDatabase", "Failed to load default channels", e)
+                android.util.Log.e("BrowseDatabase", "Failed to load range $lo..$hi", e)
             } finally {
-                if (selected?.id == item.id) waveLoading = false
+                if (loadedRange == range) waveLoading = false
             }
         }
     }
 
+    fun toggleCapture(id: Long) {
+        if (checkedIds.contains(id)) checkedIds.remove(id) else checkedIds.add(id)
+        val lo = checkedIds.minOrNull()
+        val hi = checkedIds.maxOrNull()
+        val newRange = if (lo != null && hi != null) lo to hi else null
+        if (newRange != loadedRange) reloadForRange()   // only reload when the span actually changes
+    }
+
     fun toggleChannel(ch: Int) {
-        val cap = selected ?: return
+        val range = loadedRange ?: return
         if (checkedChannels.contains(ch)) {
             checkedChannels.remove(ch)
         } else {
             checkedChannels.add(ch)
-            loadChannelAsync(cap.id, ch)
+            if (!channelData.containsKey(ch)) {
+                scope.launch {
+                    try {
+                        val vals = withContext(Dispatchers.IO) {
+                            db.soundDataDao().loadChannelRange(range.first, range.second, ch).map { it.value }.toIntArray()
+                        }
+                        if (loadedRange == range) channelData[ch] = vals
+                    } catch (e: Exception) {
+                        android.util.Log.e("BrowseDatabase", "Failed to load channel $ch", e)
+                    }
+                }
+            }
         }
     }
 
@@ -186,11 +221,13 @@ private fun BrowseDatabaseScreen() {
     LaunchedEffect(Unit) { loadNextPage() }
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // Left 2/3 - waveform + per-channel checkboxes
         Box(modifier = Modifier.weight(2f).fillMaxHeight()) {
             WaveformPane(
-                selected = selected,
+                hasSelection = hasRange,
+                nChannels = rangeNChannels,
+                rangeKey = rangeKey,
                 channelData = channelData,
+                boundaries = boundaries,
                 checkedChannels = checkedChannels,
                 loading = waveLoading,
                 onToggleChannel = { toggleChannel(it) }
@@ -200,15 +237,16 @@ private fun BrowseDatabaseScreen() {
             modifier = Modifier.fillMaxHeight(),
             color = MaterialTheme.colorScheme.outlineVariant
         )
-        // Right 1/3 - lazily loaded capture list
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             CaptureListPane(
                 captures = captures,
-                selectedId = selected?.id,
+                checkedIds = checkedIds,
+                rangeMin = rangeMin,
+                rangeMax = rangeMax,
                 isLoading = isLoading,
                 endReached = endReached,
                 onLoadMore = { loadNextPage() },
-                onSelect = { selectCapture(it) }
+                onToggle = { toggleCapture(it) }
             )
         }
     }
@@ -217,11 +255,13 @@ private fun BrowseDatabaseScreen() {
 @Composable
 private fun CaptureListPane(
     captures: List<CaptureListItem>,
-    selectedId: Long?,
+    checkedIds: List<Long>,
+    rangeMin: Long?,
+    rangeMax: Long?,
     isLoading: Boolean,
     endReached: Boolean,
     onLoadMore: () -> Unit,
-    onSelect: (CaptureListItem) -> Unit,
+    onToggle: (Long) -> Unit,
 ) {
     val listState = rememberLazyListState()
 
@@ -235,17 +275,19 @@ private fun CaptureListPane(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            text = "Captures",
+            text = "Captures — check a range to plot",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(12.dp)
         )
         HorizontalDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(items = captures, key = { it.id }) { item ->
+                val inRange = rangeMin != null && rangeMax != null && item.id in rangeMin..rangeMax
                 CaptureRow(
                     item = item,
-                    selected = item.id == selectedId,
-                    onClick = { onSelect(item) }
+                    checked = checkedIds.contains(item.id),
+                    inRange = inRange,
+                    onToggle = { onToggle(item.id) }
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             }
@@ -274,38 +316,45 @@ private fun CaptureListPane(
 private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
 @Composable
-private fun CaptureRow(item: CaptureListItem, selected: Boolean, onClick: () -> Unit) {
-    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+private fun CaptureRow(item: CaptureListItem, checked: Boolean, inRange: Boolean, onToggle: () -> Unit) {
+    val bg = when {
+        checked -> MaterialTheme.colorScheme.primaryContainer
+        inRange -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+        else -> Color.Transparent
+    }
     val perChannel = if (item.nChannels > 0) item.soundCount / item.nChannels else item.soundCount
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = dateFormat.format(Date(item.timestamp)),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
-        )
-        Spacer(Modifier.height(2.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "#${item.id}  ·  ${item.nChannels} ch × $perChannel",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = dateFormat.format(Date(item.timestamp)),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
             )
-            if (item.isOverrun != 0) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Text(
-                    text = "overrun: ${item.isOverrun}",
+                    text = "#${item.id}  ·  ${item.nChannels} ch × $perChannel",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    fontWeight = FontWeight.Bold
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (item.isOverrun != 0) {
+                    Text(
+                        text = "overrun: ${item.isOverrun}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
@@ -313,28 +362,30 @@ private fun CaptureRow(item: CaptureListItem, selected: Boolean, onClick: () -> 
 
 @Composable
 private fun WaveformPane(
-    selected: CaptureListItem?,
+    hasSelection: Boolean,
+    nChannels: Int,
+    rangeKey: String,
     channelData: Map<Int, IntArray>,
+    boundaries: IntArray,
     checkedChannels: List<Int>,
     loading: Boolean,
     onToggleChannel: (Int) -> Unit,
 ) {
-    if (selected == null) {
+    if (!hasSelection) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                "Select a capture to view its waveform",
+                "Check one or more captures — the range (first→last) is plotted in arrival order",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         return
     }
 
-    // Channels currently checked AND already loaded — those we actually plot.
     val visible = checkedChannels.filter { channelData.containsKey(it) }.sorted()
     val visibleKey = visible.joinToString(",")
 
-    // n = samples per channel; y-range across all visible channels.
-    val stats = remember(selected.id, visibleKey, channelData.size) {
+    // n = total samples per channel across the range; y-range over visible channels.
+    val stats = remember(rangeKey, visibleKey, channelData.size) {
         var n = 0
         var mn = Int.MAX_VALUE
         var mx = Int.MIN_VALUE
@@ -354,23 +405,24 @@ private fun WaveformPane(
     val yMin = stats.second
     val yMax = stats.third
 
-    // Image-style transform; reset only when a different capture is selected.
-    var scale by remember(selected.id) { mutableFloatStateOf(1f) }
-    var offset by remember(selected.id) { mutableStateOf(Offset.Zero) }
+    // Reset the view whenever the selected range changes.
+    var scale by remember(rangeKey) { mutableFloatStateOf(1f) }
+    var offset by remember(rangeKey) { mutableStateOf(Offset.Zero) }
 
     val textMeasurer = rememberTextMeasurer()
     val axisColor = MaterialTheme.colorScheme.outline
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val boundaryColor = Color(0x66000000)
     val labelStyle = TextStyle(color = labelColor, fontSize = 10.sp)
 
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(selected.id) {
+                .pointerInput(rangeKey) {
                     detectTransformGestures { centroid, pan, zoom, _ ->
-                        val newScale = (scale * zoom).coerceIn(0.25f, 500f)
+                        val newScale = (scale * zoom).coerceIn(0.25f, 5000f)
                         offset = centroid + pan - (centroid - offset) * (newScale / scale)
                         scale = newScale
                     }
@@ -404,7 +456,6 @@ private fun WaveformPane(
                 val ampTop = screenYToAmp(oy)
                 val ampBottom = screenYToAmp(oy + plotH)
 
-                // vertical gridlines + sample-index labels
                 val xStep = niceStep(iRight - iLeft, 6)
                 var xt = ceil(iLeft / xStep) * xStep
                 while (xt <= iRight) {
@@ -415,7 +466,6 @@ private fun WaveformPane(
                     xt += xStep
                 }
 
-                // horizontal gridlines + amplitude labels
                 val yStep = niceStep(ampTop - ampBottom, 6)
                 var yt = ceil(ampBottom / yStep) * yStep
                 while (yt <= ampTop) {
@@ -426,12 +476,22 @@ private fun WaveformPane(
                     yt += yStep
                 }
 
-                // channel traces, clipped to the plot rect
                 clipRect(ox, oy, ox + plotW, oy + plotH) {
                     val li = floor(iLeft).toInt().coerceIn(0, n - 1)
                     val ri = ceil(iRight).toInt().coerceIn(0, n - 1)
                     val visN = (ri - li).coerceAtLeast(1)
                     val step = max(1, visN / (plotW.toInt().coerceAtLeast(1) * 2))
+
+                    // capture-boundary markers (thinned so they don't form a wall when zoomed out)
+                    var lastBx = -1e9f
+                    for (b in boundaries) {
+                        if (b < li || b > ri) continue
+                        val px = sx(b.toFloat())
+                        if (px - lastBx < 6f) continue
+                        drawLine(boundaryColor, Offset(px, oy), Offset(px, oy + plotH), 1f)
+                        lastBx = px
+                    }
+
                     for (ch in visible) {
                         val data = channelData[ch] ?: continue
                         val path = Path()
@@ -453,18 +513,15 @@ private fun WaveformPane(
                 }
             }
 
-            // axis frame
             drawLine(axisColor, Offset(ox, oy), Offset(ox, oy + plotH), 2f)
             drawLine(axisColor, Offset(ox, oy + plotH), Offset(ox + plotW, oy + plotH), 2f)
 
-            // axis titles
-            val xTitle = textMeasurer.measure("sample index", labelStyle)
+            val xTitle = textMeasurer.measure("sample index (concatenated)", labelStyle)
             drawText(xTitle, topLeft = Offset(ox + plotW / 2f - xTitle.size.width / 2f, size.height - xTitle.size.height))
             val yTitle = textMeasurer.measure("amplitude", labelStyle)
             drawText(yTitle, topLeft = Offset(2f, oy - yTitle.size.height - 2f))
         }
 
-        // Empty-state hint over the (still-drawn) axes
         if (visible.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -477,15 +534,13 @@ private fun WaveformPane(
             }
         }
 
-        // Channel checkbox list (overlay, top-start)
         ChannelSelector(
-            nChannels = selected.nChannels,
+            nChannels = nChannels,
             checkedChannels = checkedChannels,
             channelData = channelData,
             modifier = Modifier.align(Alignment.TopStart).padding(8.dp)
         ) { onToggleChannel(it) }
 
-        // Reset-view control
         TextButton(
             onClick = { scale = 1f; offset = Offset.Zero },
             modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp)

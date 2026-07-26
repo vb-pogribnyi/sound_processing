@@ -98,6 +98,15 @@ interface SoundDataDao {
 
     @Query("SELECT DISTINCT channelId FROM sound_data WHERE captureId = :captureId ORDER BY channelId ASC")
     suspend fun channelsOf(captureId: Long): List<Int>
+
+    /** One channel's samples concatenated across a capture-id range, in arrival order
+     *  (by captureId, then row id) - so consecutive captures join end-to-end. */
+    @Query("SELECT value FROM sound_data WHERE captureId BETWEEN :minId AND :maxId AND channelId = :channelId ORDER BY captureId ASC, id ASC")
+    suspend fun loadChannelRange(minId: Long, maxId: Long, channelId: Int): List<SampleValue>
+
+    /** Per-capture sample count for a channel across a range (to place capture boundaries). */
+    @Query("SELECT captureId AS captureId, COUNT(*) AS cnt FROM sound_data WHERE captureId BETWEEN :minId AND :maxId AND channelId = :channelId GROUP BY captureId ORDER BY captureId ASC")
+    suspend fun channelCountsInRange(minId: Long, maxId: Long, channelId: Int): List<CaptureSampleCount>
 }
 @Entity(tableName = "captures")
 data class Capture (
@@ -112,6 +121,12 @@ data class Capture (
     val micsAngle: Int,
     val note: String
 )
+/** Projection: number of samples of one channel in a single capture (range boundaries). */
+data class CaptureSampleCount(val captureId: Long, val cnt: Int)
+
+/** Projection: a single sample value (single-column range query). */
+data class SampleValue(val value: Int)
+
 /** Lightweight projection for the capture browser list (right pane). */
 data class CaptureListItem(
     val id: Long,
