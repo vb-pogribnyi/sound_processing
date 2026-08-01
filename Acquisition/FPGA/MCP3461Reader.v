@@ -4,7 +4,8 @@ module MCP3461Reader (
     input wire i_SCLK,
     input wire i_CS,
     output reg o_RDY,
-    output reg [15:0] o_VALUE
+    output reg [15:0] o_VALUE,
+    output wire o_VALID          // address-ack validity of the latest STATUS byte
 );
 
 reg [7:0] bit_idx = 0;
@@ -43,5 +44,10 @@ always @(posedge i_SCLK) begin
         o_RDY <= ~rx_shift_reg[18];
     end
 end
+
+// Expose the address-ack check (2 device-address bits + 1 inverted bit) so the
+// master can enforce it: a floating/unpopulated channel cannot reproduce the
+// complementary pattern, so its is_valid stays low.
+assign o_VALID = is_valid;
 
 endmodule

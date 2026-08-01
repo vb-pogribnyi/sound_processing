@@ -169,6 +169,9 @@ void task_retr_main_func(void* pvParameters) {
 				break;	// not a request (e.g. a stray SENT) - keep waiting
 			}
 			if (!capture_active) {          // start a NEW capture on the first request
+				uint8_t log2n = 0;          // tell FPGA the effective channel count:
+				for (uint8_t t = num_adcs; t > 1u; t >>= 1) log2n++;  // floor(log2(num_adcs))
+				BASE[0xD] = log2n;          // EFF = 1<<log2n; masks absent-channel checks in FPGA
 				BASE[0xE] = 1;              // arm: rewind FPGA FIFO, enable polling
 				sound_buff_idx = 0;
 				is_done = 0;

@@ -7,6 +7,7 @@ module MCP3461Master #(
     input wire i_CLK50,
     input wire i_INTERRUPT,
     input wire [2:0] i_GAIN,         // MCP3461 PGA gain code (CONFIG2[5:3])
+    input wire [2:0] i_NUM_ADC_LOG2, // effective channel count: EFF = 1<<this (STM32 @0xD)
     input wire [NUM_ADC-1:0] i_MISO,
     // output wire sel_interrupt,
     output reg o_MOSI,
@@ -15,7 +16,8 @@ module MCP3461Master #(
     output wire o_MCLK,
     output reg [2:0] o_STATE,
     output wire [16 * NUM_ADC-1:0] o_VALUE,
-    output wire o_RDY
+    output wire o_RDY,
+    output wire o_VALID              // combined address-ack validity of the EFF active ADCs
 );
 reg [7:0] tx_buff [0:16];
 reg [7:0] tx_len = 0;
@@ -51,24 +53,45 @@ localparam WATCHDOG = 17'd50000;     // ~4 ms @ 12.5 MHz state rate
 reg  [1:0] irq_sync = 2'b11;         // 2-FF sync of IRQ (active low); 11 = not ready
 wire data_ready = ~irq_sync[1];      // 1 = ADC has a fresh conversion waiting
 // Live PGA-gain control: 2-FF sync the select, rebuild CONFIG2, and re-run the
-// config write whenever the selection changes. Base CONFIG2 = 0x45
-// (BOOST=01, AZ_MUX=1, low bits=01); only GAIN[2:0] (bits 5:3) is swapped in.
+// config write whenever the selection changes. Base CONFIG2 = 0xC5
+// (BOOST=11 -> 2x bias current, AZ_MUX=1, low bits=01); only GAIN[2:0]
+// (bits 5:3) is swapped in. BOOST=2x gives the modulator the most bias
+// current, so it settles fastest and is least likely to overload/latch into
+// the high-noise state on an input transient (at the cost of higher power).
 reg  [2:0] gain_s0 = 3'b000, gain_s1 = 3'b000;  // synced gain select
 reg  [2:0] gain_applied = 3'b000;               // gain currently written to the ADC
-wire [7:0] config2 = {2'b01, gain_s1, 3'b101};  // CONFIG2 with selected gain
+reg  [2:0] nadc_s0 = 3'd1, nadc_s1 = 3'd1;      // synced effective-count log2 (default EFF=2)
+wire [7:0] config2 = {2'b11, gain_s1, 3'b101};  // CONFIG2: BOOST=2x + selected gain
 wire gain_changed = (gain_s1 != gain_applied);
 wire [NUM_ADC-1:0] reader_rdy;
-assign o_RDY = &reader_rdy;
+wire [NUM_ADC-1:0] reader_valid;
+// EFF = 1<<nadc_s1 active channels. active_mask marks them; inactive lanes are
+// forced to 1 in each reduction below so an unpopulated channel can neither gate
+// nor invalidate the real ones. (Mask values written for NUM_ADC=4.)
+reg [NUM_ADC-1:0] active_mask;
+always @(*) begin
+    case (nadc_s1)
+        3'd0:    active_mask = 4'b0001;   // EFF = 1
+        3'd1:    active_mask = 4'b0011;   // EFF = 2
+        3'd2:    active_mask = 4'b1111;   // EFF = 4
+        default: active_mask = 4'b0011;   // safe default: 2 channels
+    endcase
+end
+// Enforce is_valid: ready only when every ACTIVE channel is data-ready AND passes
+// its address-ack check. o_VALID = all active channels valid (FSMC status bit2).
+assign o_RDY   = &((reader_rdy & reader_valid) | ~active_mask);
+assign o_VALID = &(reader_valid | ~active_mask);
 genvar gi;
 generate
 for (gi = 0; gi < NUM_ADC ; gi = gi + 1) begin: readers
-    MCP3461Reader reader ( 
+    MCP3461Reader reader (
         .i_CLK50(i_CLK50),
         .i_MISO(i_MISO[gi]),
         .i_SCLK(sclk),
         .i_CS(o_CS),
         .o_RDY(reader_rdy[gi]),
-        .o_VALUE(o_VALUE[16 * (gi+1)-1:16 * gi])
+        .o_VALUE(o_VALUE[16 * (gi+1)-1:16 * gi]),
+        .o_VALID(reader_valid[gi])
     );
 end
 endgenerate;
@@ -77,7 +100,8 @@ initial begin
     o_STATE = FRESH;
     cfg[0] = 8'hC3;  // CONFIG0. Internal ref, external MCLK, no current, conv mode
     cfg[1] = 8'h00;  // CONFIG1. No prescaler, smallest oversampling
-    cfg[2] = 8'h45;  // CONFIG2. No current scale, no gain, no input chopping, yes ref chopping
+    cfg[2] = 8'h45;  // CONFIG2 - VESTIGIAL: the ALIVE-state write uses the `config2`
+                     // wire (BOOST=2x + switch-selected gain), NOT this value.
     cfg[3] = 8'hC0;  // CONFIG3. Continuous conversion, 16-bit coding, no CRC, no calibration
     cfg[4] = 8'h00;  // IRQ. Enabled, no "start" interrupt
     // Actually from this point on the default configuration is OK.
@@ -94,6 +118,8 @@ always @(posedge i_CLK50) begin
     irq_sync <= {irq_sync[0], i_INTERRUPT};   // synchronize the async IRQ pin
     gain_s0  <= i_GAIN;                        // synchronize the gain-select switches
     gain_s1  <= gain_s0;
+    nadc_s0  <= i_NUM_ADC_LOG2;                // synchronize the effective-count select
+    nadc_s1  <= nadc_s0;
     if (cnt == 0) begin // 6 MHZ clock
         sclk <= !sclk; 
 

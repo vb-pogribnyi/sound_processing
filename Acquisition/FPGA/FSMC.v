@@ -165,12 +165,21 @@ module FSMC #(
     inout  wire [3:0]  psram_sio,   // SIO[3:0] bidirectional — matches IC pins
 
     // ---- status ----
-    output wire        psram_is_valid  // 1 after PSRAM self-test passes
+    output wire        psram_is_valid, // 1 after PSRAM self-test passes
+
+    // ---- effective ADC count + ADC address-ack validity ----
+    input  wire        i_adc_valid,    // combined is_valid across EFF active ADCs (i_CLK50 domain)
+    output wire [2:0]  o_num_adc_log2  // EFF = 1<<this; STM32 writes it at 0xD (feeds MCP3461Master)
 );
 
     // ---- derived sizes ----
-    localparam ENTRY_BITS = 16 * NUM_ADC;   // bits per FIFO entry (32 for NUM_ADC=2)
-    localparam ENTRY_NIBS = 4  * NUM_ADC;   // read nibbles per entry (8 for NUM_ADC=2)
+    localparam ENTRY_BITS = 16 * NUM_ADC;   // bits per FIFO entry (64 for NUM_ADC=4)
+    localparam ENTRY_NIBS = 4  * NUM_ADC;   // nibbles per stored entry (16 for NUM_ADC=4)
+    // The STM32 can only address the low 8 nibbles of an entry over AD[3:0]
+    // (0x0..0x7) and still reach the control/status regs at 0x8..0xF. So reads
+    // expose at most 8 nibbles = up to EFF=2 channels; the STM32 reads exactly
+    // 4*EFF of them. (EFF=4 stores/checks fine but its readout needs a wider bus.)
+    localparam READ_ENTRY_NIBS = (ENTRY_NIBS > 8) ? 8 : ENTRY_NIBS;
     // Address map (4-bit space, AD[3:0]):
     //   0x0 .. ENTRY_NIBS-1 : FIFO entry nibbles (read) / debug write (0x0..0x3)
     //   CAM_RED  (0x9)      : camera average red   (read, 1 nibble)
@@ -181,6 +190,7 @@ module FSMC #(
     localparam [3:0] LIVE_BASE = 4'hB;      // live value at 0xB,0xC,0xD,0xE (read)
     localparam [3:0] CTRL_ADDR = 4'hE;      // acquisition control (write): 0x1=arm, 0x0=stop
     localparam [3:0] STAT_ADDR = 4'hF;      // status (read) / adc_sel (write)
+    localparam [3:0] NUMADC_ADDR = 4'hD;    // effective ADC count log2 (WRITE only; read 0xD = live nibble)
     localparam [3:0] CAM_RED   = 4'h9;      // camera average red   (read, 1 nibble)
     localparam [3:0] CAM_GREEN = 4'hA;      // camera average green (read, 1 nibble)
 
@@ -459,20 +469,24 @@ module FSMC #(
     // transactions, causing the first read after any number of async writes to see a stale
     // "FIFO empty" and skip the pop. Fix: register these quasi-static signals in the always-
     // running sys_clk domain first so the value is current before the first fsmc_clk edge.
-    reg fifo_empty_pre, fifo_full_pre, is_valid_pre, acq_full_pre;
+    reg fifo_empty_pre, fifo_full_pre, is_valid_pre, acq_full_pre, adc_valid_s1;
     reg [3:0] cam_red_pre, cam_green_pre;   // camera averages, sys_clk pre-register
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
             fifo_empty_pre <= 1'b1;
             fifo_full_pre  <= 1'b0;
             is_valid_pre   <= 1'b0;
+            adc_valid_s1   <= 1'b0;
             acq_full_pre   <= 1'b0;
             cam_red_pre    <= 4'h0;
             cam_green_pre  <= 4'h0;
         end else begin
             fifo_empty_pre <= psram_fifo_empty;
             fifo_full_pre  <= psram_fifo_full;
-            is_valid_pre   <= psram_valid_int;
+            // status bit2 now reports ADC address-ack validity (not PSRAM self-test,
+            // which stays on the psram_is_valid pin / LED). 2-FF sync i_CLK50->sys_clk.
+            adc_valid_s1   <= i_adc_valid;
+            is_valid_pre   <= adc_valid_s1;
             acq_full_pre   <= acq_full_sticky;
             cam_red_pre    <= cam_red;
             cam_green_pre  <= cam_green;
@@ -513,7 +527,9 @@ module FSMC #(
     wire pf_valid_fsmc   = pf_valid_sync1;
 
     // Status nibble @STAT_ADDR:
-    //   bit0=fifo_empty  bit1=acq_full(sticky)  bit2=is_valid  bit3=data_ready
+    //   bit0=fifo_empty  bit1=acq_full(sticky)  bit2=adc_valid  bit3=data_ready
+    //   bit2 = combined ADC address-ack validity across the EFF active channels
+    //   (PSRAM self-test valid is no longer here - it stays on psram_is_valid / LED).
     wire [15:0] status_word = {12'b0, pf_valid_fsmc, is_valid_fsmc, acq_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
@@ -523,6 +539,8 @@ module FSMC #(
     //               (pushed as the low word of an ENTRY_BITS entry, rest 0)
     // =================================================================
     reg [15:0] wr_accum;
+    reg [2:0]  num_adc_log2;                // EFF channel-count log2, written by STM32 at 0xD
+    assign o_num_adc_log2 = num_adc_log2;
 
     // acquisition-control command crossed to sys_clk as a toggle + data bit
     reg ctrl_cmd_tog_fsmc;
@@ -535,6 +553,7 @@ module FSMC #(
             adc_sel           <= 4'h0;
             ctrl_cmd_tog_fsmc <= 1'b0;
             ctrl_cmd_val      <= 1'b0;
+            num_adc_log2      <= 3'd1;             // default EFF = 2
         end else if (~fsmc_ne) begin
             if (burst_start_addr == STAT_ADDR) begin
                 adc_sel <= fsmc_ad;                // select live channel
@@ -542,6 +561,8 @@ module FSMC #(
                 // acquisition control: bit0 = 1 arm, 0 stop
                 ctrl_cmd_val      <= fsmc_ad[0];
                 ctrl_cmd_tog_fsmc <= ~ctrl_cmd_tog_fsmc;
+            end else if (burst_start_addr == NUMADC_ADDR) begin
+                num_adc_log2      <= fsmc_ad[2:0]; // EFF = 1<<val (0->1, 1->2, 2->4)
             end else if (burst_start_addr < 4'h4) begin
                 case (burst_start_addr[1:0])
                     2'd0: wr_accum[3:0]   <= fsmc_ad;
@@ -598,8 +619,8 @@ module FSMC #(
                 ST_IDLE: begin
                     cur_addr <= burst_start_addr;
                     // ---- region decode + load (only at a region's first address) ----
-                    if (burst_start_addr < ENTRY_NIBS) begin
-                        // FIFO entry region (0x0 .. ENTRY_NIBS-1)
+                    if (burst_start_addr < READ_ENTRY_NIBS) begin
+                        // FIFO entry region (0x0 .. READ_ENTRY_NIBS-1)
                         nib_base <= 4'h0;
                         if (burst_start_addr == 4'h0 && pf_valid_fsmc) begin
                             // take the prefetched entry; addr 1.. just replay it

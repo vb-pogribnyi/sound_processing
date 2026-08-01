@@ -158,13 +158,17 @@ module led(
         
     //     .o_CNT(o_CNT)
     // );
-    // One parameter for the whole chain. Capped at 2 until AD[7:4] are wired:
-    // a FIFO entry is 4*NUM_ADC nibbles and must fit below the control
-    // registers (live 0xB-0xE, status 0xF) in the 4-bit FSMC address space.
-    localparam NUM_ADC = 2;
+    // Hardware max channels (readers instantiated + PSRAM entry width). The
+    // EFFECTIVE count is set at runtime by the STM32 (writes log2 to 0xD) and
+    // masks the per-channel checks. Note: with only AD[3:0] wired the STM32 can
+    // read back at most 2 channels (entry nibbles 0x0..0x7); raising the usable
+    // effective count past 2 needs more address lines (AD[7:4]).
+    localparam NUM_ADC = 4;
 
     wire [3:0] miso;
     wire [2:0] mcp_state;
+    wire [2:0] num_adc_log2;      // EFF = 1<<this, from FSMC 0xD write -> MCP3461Master mask
+    wire       adc_valid;         // combined ADC address-ack validity -> FSMC status bit2
     assign miso[0] = i_MCP_SDO1;
     assign miso[1] = i_MCP_SDO2;
     assign miso[2] = i_MCP_SDO3;
@@ -185,6 +189,7 @@ module led(
         .i_CLK50(i_CLK),
         .i_INTERRUPT(i_MCP_nIRQ),
         .i_GAIN(adc_gain),
+        .i_NUM_ADC_LOG2(num_adc_log2),
         .i_MISO(miso[NUM_ADC-1:0]),
         .o_MOSI(o_MCP_SDI),
         .o_CS(o_MCP_nCS),
@@ -192,7 +197,8 @@ module led(
         .o_MCLK(o_MCP_MCLK),
         .o_STATE(mcp_state),
         .o_VALUE(outputs),
-        .o_RDY(rdy)
+        .o_RDY(rdy),
+        .o_VALID(adc_valid)
     );
 
 
@@ -402,7 +408,9 @@ module led(
         .psram_sclk    (o_PSRAM_CLK),
         .psram_ce_n    (o_PSRAM_CE),
         .psram_sio     (PSRAM_SIO),
-        .psram_is_valid(psram_state[0])
+        .psram_is_valid(psram_state[0]),
+        .i_adc_valid   (adc_valid),
+        .o_num_adc_log2(num_adc_log2)
     );
     // PSRAM #(
     //     .nADC        (nADC),
