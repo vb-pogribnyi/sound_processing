@@ -23,7 +23,7 @@ always @(posedge i_SCLK) begin
                 rx_shift_reg <= {rx_shift_reg[30:0], i_MISO};
                 o_RDY <= 0;
             end
-            if (bit_idx == 7) begin
+            if (bit_idx == 4) begin
                 is_valid <= rx_shift_reg[0] == !i_MISO;
             end
         end

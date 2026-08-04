@@ -24,7 +24,7 @@ int16_t adc_values[4] = {0};
 extern uint8_t adc_fstatus;
 
 uint8_t usb_sound_response[4];
-uint8_t num_adcs = 2;
+uint8_t num_adcs = 1;
 #define PERIODIC_BUFFER 1024*2
 #define SEGGER_BUFFER 1024*4
 uint8_t segger_usb_buf[SEGGER_BUFFER] = {0};
@@ -137,6 +137,7 @@ void task_retr_main_func(void* pvParameters) {
 	BaseType_t result;
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
+	BASE[0xD] = 0;					 // Capture 1 ADC
 	BASE[0xF] = 0;                   // Select ADC to be reported as periodic
 
 	// The sub-ms drain timeout below uses the DWT cycle counter; ensure it runs

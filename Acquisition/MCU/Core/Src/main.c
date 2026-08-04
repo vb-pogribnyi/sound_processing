@@ -49,7 +49,6 @@ SPI_HandleTypeDef hspi3;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
-DMA_HandleTypeDef hdma_tim1_ch1;
 
 PCD_HandleTypeDef hpcd_USB_OTG_HS;
 
@@ -69,7 +68,6 @@ const osThreadAttr_t defaultTask_attributes = {
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_USB_OTG_HS_PCD_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_SPI1_Init(void);
@@ -132,7 +130,6 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_USB_OTG_HS_PCD_Init();
   MX_TIM1_Init();
   MX_SPI1_Init();
@@ -391,7 +388,6 @@ static void MX_TIM1_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
 
   /* USER CODE BEGIN TIM1_Init 1 */
 
@@ -412,21 +408,9 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_IC_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim1, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -563,22 +547,6 @@ static void MX_USB_OTG_HS_PCD_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA2_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -601,10 +569,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOE, LED2_Pin|LED_G_Pin|LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, USB_RST_Pin|ADC_AUX_2_Pin|ADC_AUX_1_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(ADC_CS_2_GPIO_Port, ADC_CS_2_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(USB_RST_GPIO_Port, USB_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_R_GPIO_Port, LED_R_Pin, GPIO_PIN_RESET);
@@ -616,25 +581,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : USB_RST_Pin ADC_AUX_2_Pin ADC_AUX_1_Pin */
-  GPIO_InitStruct.Pin = USB_RST_Pin|ADC_AUX_2_Pin|ADC_AUX_1_Pin;
+  /*Configure GPIO pin : USB_RST_Pin */
+  GPIO_InitStruct.Pin = USB_RST_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  HAL_GPIO_Init(USB_RST_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ADC_FDATA_2_Pin ADC_FDATA_1_Pin ADC_RDY_Pin */
-  GPIO_InitStruct.Pin = ADC_FDATA_2_Pin|ADC_FDATA_1_Pin|ADC_RDY_Pin;
+  /*Configure GPIO pins : FPGA_Done_Pin FPGA_Status_Pin */
+  GPIO_InitStruct.Pin = FPGA_Done_Pin|FPGA_Status_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : ADC_CS_2_Pin */
-  GPIO_InitStruct.Pin = ADC_CS_2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(ADC_CS_2_GPIO_Port, &GPIO_InitStruct);
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_R_Pin */
   GPIO_InitStruct.Pin = LED_R_Pin;
@@ -730,7 +688,6 @@ void StartDefaultTask(void *argument)
   * @param  htim : TIM handle
   * @retval None
   */
-void  drive_cam_indicator();
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
