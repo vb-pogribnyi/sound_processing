@@ -55,12 +55,19 @@ module led(
     // input wire i_MISO2,
     // input wire i_MISO3,
     // input wire i_MISO4,
-    input wire i_MCP_SDO1,
-    input wire i_MCP_SDO2,
-    input wire i_MCP_SDO3,
-    input wire i_MCP_SDO4,
+    input wire i_MCP_SDO1,  input wire i_MCP_SDO2,  input wire i_MCP_SDO3,  input wire i_MCP_SDO4,
+    input wire i_MCP_SDO5,  input wire i_MCP_SDO6,  input wire i_MCP_SDO7,  input wire i_MCP_SDO8,
+    input wire i_MCP_SDO9,  input wire i_MCP_SDO10, input wire i_MCP_SDO11, input wire i_MCP_SDO12,
+    input wire i_MCP_SDO13, input wire i_MCP_SDO14, input wire i_MCP_SDO15, input wire i_MCP_SDO16,
+    input wire i_MCP_SDO17, input wire i_MCP_SDO18, input wire i_MCP_SDO19, input wire i_MCP_SDO20,
+    input wire i_MCP_SDO21, input wire i_MCP_SDO22, input wire i_MCP_SDO23, input wire i_MCP_SDO24,
+    input wire i_MCP_SDO25, input wire i_MCP_SDO26, input wire i_MCP_SDO27, input wire i_MCP_SDO28,
+    input wire i_MCP_SDO29, input wire i_MCP_SDO30, input wire i_MCP_SDO31, input wire i_MCP_SDO32,
     input wire i_MCP_nIRQ,       // ADC data-ready / IRQ (active low) - drives DRDY sync
-    output wire o_MCP_nCS,
+    // Two chip-select pins for the two ADC banks; they toggle together (one
+    // logical CS split across groups on the PCB) - both driven by mcp_cs.
+    output wire o_MCP_nCS_1,
+    output wire o_MCP_nCS_2,
     output wire o_MCP_SDI,
     output wire o_MCP_SCK,
     output wire o_MCP_MCLK,
@@ -72,7 +79,7 @@ module led(
     output wire o_PSRAM_CE,
     output wire o_PSRAM_CLK,
 
-    inout wire [3:0] o_FSMC_AD,
+    inout wire [7:0] o_FSMC_AD,
     input wire o_FSMC_NE,
     input wire o_FSMC_NOE,
     input wire o_FSMC_NWE,
@@ -158,26 +165,31 @@ module led(
         
     //     .o_CNT(o_CNT)
     // );
-    // Hardware max channels (readers instantiated + PSRAM entry width). The
-    // EFFECTIVE count is set at runtime by the STM32 (writes log2 to 0xD) and
-    // masks the per-channel checks. Note: with only AD[3:0] wired the STM32 can
-    // read back at most 2 channels (entry nibbles 0x0..0x7); raising the usable
-    // effective count past 2 needs more address lines (AD[7:4]).
-    localparam NUM_ADC = 4;
+    // Hardware max channels (readers instantiated + PSRAM entry width). All 32
+    // ADC SDO lines are wired on this PCB. The EFFECTIVE count is set at runtime
+    // by the STM32 (writes log2 to 0xFD) and masks the per-channel checks. With
+    // the full 8-bit FSMC address the STM32 can read back all EFF channels
+    // (entry bytes 0x00..0x3F).
+    localparam NUM_ADC = 16;
 
-    wire [3:0] miso;
+    wire [31:0] miso;
     wire [2:0] mcp_state;
-    wire [2:0] num_adc_log2;      // EFF = 1<<this, from FSMC 0xD write -> MCP3461Master mask
+    wire [2:0] num_adc_log2;      // EFF = 1<<this, from FSMC 0xFD write -> MCP3461Master mask
     wire       adc_valid;         // combined ADC address-ack validity -> FSMC status bit2
-    assign miso[0] = i_MCP_SDO1;
-    assign miso[1] = i_MCP_SDO2;
-    assign miso[2] = i_MCP_SDO3;
-    assign miso[3] = i_MCP_SDO4;
+    wire       mcp_cs;            // single logical chip select -> both o_MCP_nCS_1/2
+    assign miso[0]  = i_MCP_SDO1;  assign miso[1]  = i_MCP_SDO2;  assign miso[2]  = i_MCP_SDO3;  assign miso[3]  = i_MCP_SDO4;
+    assign miso[4]  = i_MCP_SDO5;  assign miso[5]  = i_MCP_SDO6;  assign miso[6]  = i_MCP_SDO7;  assign miso[7]  = i_MCP_SDO8;
+    assign miso[8]  = i_MCP_SDO9;  assign miso[9]  = i_MCP_SDO10; assign miso[10] = i_MCP_SDO11; assign miso[11] = i_MCP_SDO12;
+    assign miso[12] = i_MCP_SDO13; assign miso[13] = i_MCP_SDO14; assign miso[14] = i_MCP_SDO15; assign miso[15] = i_MCP_SDO16;
+    assign miso[16] = i_MCP_SDO17; assign miso[17] = i_MCP_SDO18; assign miso[18] = i_MCP_SDO19; assign miso[19] = i_MCP_SDO20;
+    assign miso[20] = i_MCP_SDO21; assign miso[21] = i_MCP_SDO22; assign miso[22] = i_MCP_SDO23; assign miso[23] = i_MCP_SDO24;
+    assign miso[24] = i_MCP_SDO25; assign miso[25] = i_MCP_SDO26; assign miso[26] = i_MCP_SDO27; assign miso[27] = i_MCP_SDO28;
+    assign miso[28] = i_MCP_SDO29; assign miso[29] = i_MCP_SDO30; assign miso[30] = i_MCP_SDO31; assign miso[31] = i_MCP_SDO32;
     wire [16 * NUM_ADC-1:0] outputs;
     assign out1 = outputs[16 * (0+1)-1:16 * 0];
     assign out2 = outputs[16 * (1+1)-1:16 * 1];
-    assign out3 = 16'h0000;   // channels 3-4 unused until NUM_ADC is raised
-    assign out4 = 16'h0000;
+    assign out3 = outputs[16 * (2+1)-1:16 * 2];   // first 4 channels drive the LED variance display
+    assign out4 = outputs[16 * (3+1)-1:16 * 3];
     // SW4 -> ADC PGA gain 1x, SW5 -> 2x (SW5 priority); neither -> baseline.
     // Baseline is GAIN=1/3, so even 1x is a step up from it.
     // Applied live (master re-sends CONFIG on change).
@@ -192,7 +204,7 @@ module led(
         .i_NUM_ADC_LOG2(num_adc_log2),
         .i_MISO(miso[NUM_ADC-1:0]),
         .o_MOSI(o_MCP_SDI),
-        .o_CS(o_MCP_nCS),
+        .o_CS(mcp_cs),
         .o_SCLK(o_MCP_SCK),
         .o_MCLK(o_MCP_MCLK),
         .o_STATE(mcp_state),
@@ -200,6 +212,9 @@ module led(
         .o_RDY(rdy),
         .o_VALID(adc_valid)
     );
+    // Both PCB chip-select pins carry the same logical CS (one bank each).
+    assign o_MCP_nCS_1 = mcp_cs;
+    assign o_MCP_nCS_2 = mcp_cs;
 
 
 

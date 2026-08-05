@@ -8,7 +8,7 @@ NET "o_LED4N" LOC = "P40";
 NET "o_LED1P" LOC = "P45";
 NET "o_LED2P" LOC = "P46";
 
-NET "i_STATUS" LOC = "P117";
+#NET "i_STATUS" LOC = "P117";
 
 NET "o_FSMC_AD[0]" LOC = "P126";
 NET "o_FSMC_AD[1]" LOC = "P124";
@@ -22,6 +22,7 @@ NET "o_FSMC_NE" LOC = "P127";
 NET "o_FSMC_NOE" LOC = "P94";
 NET "o_FSMC_NWE" LOC = "P123";
 NET "o_FSMC_NADV" LOC = "P111";
+NET "o_FSMC_NADV" CLOCK_DEDICATED_ROUTE = FALSE;
 NET "o_FSMC_CLK" LOC = "P95";
 NET "o_FSMC_NWAIT" LOC = "P121";
 
@@ -80,12 +81,12 @@ NET "i_MCP_SDO30" LOC = "P1";  # 14
 NET "i_MCP_SDO31" LOC = "P67";  # 15
 NET "i_MCP_SDO32" LOC = "P119";  # 16
 # --- OV5640 camera  ---
-NET "i_CAM_D0"    LOC = "P82";
-NET "i_CAM_D1"    LOC = "P80";
-NET "i_CAM_D2"    LOC = "P81";
+#NET "i_CAM_D0"    LOC = "P82";
+#NET "i_CAM_D1"    LOC = "P80";
+#NET "i_CAM_D2"    LOC = "P81";
 NET "i_CAM_D3"    LOC = "P78";
-NET "i_CAM_D4"    LOC = "P83";
-NET "i_CAM_D5"    LOC = "P93";
+#NET "i_CAM_D4"    LOC = "P83";
+#NET "i_CAM_D5"    LOC = "P93";
 NET "i_CAM_D6"    LOC = "P97";
 NET "i_CAM_D7"    LOC = "P99";
 NET "i_CAM_PCLK"  LOC = "P85";

@@ -1,7 +1,7 @@
 `include "src/MCP3461Reader.v"
 
 module MCP3461Master #(
-    parameter NUM_ADC   = 4,
+    parameter NUM_ADC   = 32,
     parameter ADC_ADDR  = 0
 ) (
     input wire i_CLK50,
@@ -67,15 +67,14 @@ wire [NUM_ADC-1:0] reader_rdy;
 wire [NUM_ADC-1:0] reader_valid;
 // EFF = 1<<nadc_s1 active channels. active_mask marks them; inactive lanes are
 // forced to 1 in each reduction below so an unpopulated channel can neither gate
-// nor invalidate the real ones. (Mask values written for NUM_ADC=4.)
+// nor invalidate the real ones. Generic for any NUM_ADC: bit m is active iff
+// m < EFF. nadc_s1 in 0..5 -> EFF in {1,2,4,8,16,32}; EFF>=NUM_ADC = all active.
+wire [7:0] eff_count = (8'd1 << nadc_s1);   // 1,2,4,...,128
 reg [NUM_ADC-1:0] active_mask;
+integer mi;
 always @(*) begin
-    case (nadc_s1)
-        3'd0:    active_mask = 4'b0001;   // EFF = 1
-        3'd1:    active_mask = 4'b0011;   // EFF = 2
-        3'd2:    active_mask = 4'b1111;   // EFF = 4
-        default: active_mask = 4'b0011;   // safe default: 2 channels
-    endcase
+    for (mi = 0; mi < NUM_ADC; mi = mi + 1)
+        active_mask[mi] = (mi < eff_count);
 end
 // Enforce is_valid: ready only when every ACTIVE channel is data-ready AND passes
 // its address-ack check. o_VALID = all active channels valid (FSMC status bit2).

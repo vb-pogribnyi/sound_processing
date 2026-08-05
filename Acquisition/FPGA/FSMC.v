@@ -2,18 +2,17 @@
 // FSMC.v
 //
 // Bridges the STM32F407 FSMC bus (8-bit muxed PSRAM + burst read +
-// address valid, truncated to 4 physical data/address lines) to the
-// psram_fifo FIFO controller (psram_fifo.v / PSRAM.v) backed by a real
-// APS6404L QSPI PSRAM chip.
+// address valid) to the psram_fifo FIFO controller (psram_fifo.v /
+// PSRAM.v) backed by a real APS6404L QSPI PSRAM chip.
 //
-// PCB note: only FSMC_AD[3:0] are routed - no FSMC_A lines, no
-// FSMC_AD[7:4]. The 4-bit address space (0x0-0xF) is therefore all
-// that exists; addresses 0x0-0x3 are used to carry one 16-bit FIFO
-// word as four 4-bit nibbles.
+// PCB note: all 8 FSMC_AD[7:0] lines are now routed (the earlier board
+// wired only AD[3:0]). The address space is byte-wide (0x00-0xFF) and
+// every access transfers a full byte, so a 16-bit FIFO word is two
+// bytes and one FIFO entry = 2*NUM_ADC bytes.
 //
 // STM32F407 pin              this module's port
 // -------------------------  -----------------------
-// FSMC_AD[3:0]               fsmc_ad   (address during NADV phase, data otherwise)
+// FSMC_AD[7:0]               fsmc_ad   (address during NADV phase, data otherwise)
 // FSMC_NE1                   fsmc_ne
 // FSMC_NL  (NADV)            fsmc_nadv
 // FSMC_NOE                   fsmc_noe
@@ -34,21 +33,25 @@
 //   psram_sclk/ce_n/si/so - passed straight through to the APS6404L.
 //
 // -----------------------------------------------------------------------
-// Address map (4-bit space; one entry = 16*NUM_ADC bits = 4*NUM_ADC nibbles)
+// Address map (8-bit byte space; one entry = 16*NUM_ADC bits = 2*NUM_ADC bytes)
 // -----------------------------------------------------------------------
-//   For NUM_ADC=2 (entry = 32 bits = 8 nibbles):
-//   addr        read                              write
-//   ---------   -------------------------------   -----------------------
-//   0x0-0x7     FIFO entry, nibble 0..7           0x0-0x3: debug write
-//   0x9         camera average red    (4 bits)    -
-//   0xA         camera average green  (4 bits)    -
-//   0xB-0xE     live selected-channel value (16b) 0xE: acquisition control
-//   0xF         status nibble                     adc_sel (live channel)
+//   For NUM_ADC=32 (entry = 512 bits = 64 bytes):
+//   addr          read                              write
+//   -----------   -------------------------------   -----------------------
+//   0x00-0x3F     FIFO entry, byte 0..63            0x00-0x01: debug write
+//   0xFD-0xFE     live selected-channel value (16b) 0xFD: EFF ADC-count log2
+//                                                   0xFE: acquisition control
+//   0xFF          status byte                       adc_sel (live channel)
 //
-//   Status nibble: bit0=fifo_empty, bit1=acq_full (STICKY - see below),
-//                  bit2=is_valid, bit3=data_ready (a prefetched entry waits).
+//   (0x09/0x0A camera averages: DISCARDED for now - the full image-reading
+//    pipeline will be added later. The cam_red/cam_green inputs are still
+//    synchronised internally but no longer decoded to an address.)
 //
-//   Acquisition control (write 0xE):
+//   Status byte: bit0=fifo_empty, bit1=acq_full (STICKY - see below),
+//                bit2=is_valid, bit3=data_ready (a prefetched entry waits).
+//                (bit layout unchanged from the old 4-bit status nibble.)
+//
+//   Acquisition control (write 0xFE):
 //     0x1 -> ARM: rewind PSRAM write pointer to 0, clear acq_full, enable
 //                 ADC->FIFO capture.
 //     0x0 -> STOP capture early (no sticky flag set).
@@ -58,14 +61,14 @@
 // DISABLED by default out of reset; the STM32 arms it by writing 0x1 to 0xE.
 // When the FIFO fills, capture stops automatically (unread data is NEVER
 // overwritten) and acq_full (status bit1) latches high to tell the STM32 to
-// drain the FIFO and re-arm. STM32 writes to 0x0-0x3 remain a debug path.
+// drain the FIFO and re-arm. STM32 writes to 0x00-0x01 remain a debug path.
 //
 // READ: the FIFO entry is PREFETCHED into a holding register by a small
 // engine in the free-running sys_clk domain (see "PREFETCH engine"). A read
-// of address 0x0 does NOT wait for a SPI round-trip - the entry is already
+// of address 0x00 does NOT wait for a SPI round-trip - the entry is already
 // local, so it streams with only the short bounded LATENCY_CYCLES delay and
-// signals the engine to fetch the next entry. Addresses 0x1..ENTRY_NIBS-1
-// replay the remaining nibbles. The live value (0xB-0xE) and status (0xF)
+// signals the engine to fetch the next entry. Addresses 0x01..ENTRY_BYTES-1
+// replay the remaining bytes. The live value (0xFD-0xFE) and status (0xFF)
 // are always available and never stall.
 //
 // WHY prefetch instead of stalling: FSMC_CLK is GATED - it only toggles
@@ -76,20 +79,21 @@
 // stops). Prefetching removes the long stall entirely.
 //
 // FIRMWARE CONTRACT (capture + drain):
-//   1. Once at startup, wait for self-test: while (!(BASE[0xF] & 0x4)) {}  // is_valid
-//   2. Arm the capture:     BASE[0xE] = 0x1;                       // start polling
+//   0. Once, set the effective channel count: BASE[0xFD] = log2(EFF);   // 0->1,1->2,...,5->32
+//   1. Once at startup, wait for self-test: while (!(BASE[0xFF] & 0x4)) {}  // is_valid
+//   2. Arm the capture:     BASE[0xFE] = 0x1;                      // start polling
 //   3. Drain entries as they arrive - reading may begin with the FIRST
 //      sample; there is NO need to wait for the buffer to fill:
-//        while (!(BASE[0xF] & 0x8)) {}                             // data-ready (bit3)
-//        for (n=0;n<4*NUM_ADC;n++) word[n>>2] |= (BASE[n]&0xF) << (4*(n&3));
+//        while (!(BASE[0xFF] & 0x8)) {}                            // data-ready (bit3)
+//        for (n=0;n<2*EFF;n++) ((uint8_t*)word)[n] = BASE[n];      // 64 bytes for EFF=32
 //      Optionally, a batch reader may instead wait for acq_full (bit1) - set
 //      only if the FIFO fills before the STM32 keeps up - then drain in a
 //      loop until the FIFO is empty (bit0).
-//   4. Re-arm:              BASE[0xE] = 0x1;                       // next capture
+//   4. Re-arm:              BASE[0xFE] = 0x1;                      // next capture
 // Arming rewinds the PSRAM write pointer to 0 and clears acq_full; is_valid is
 // NOT re-checked (it never clears once set), so a re-arm is immediate. The live
-// value (0xB-0xE READ) needs no poll and is independent of capture: write the
-// channel index to 0xF once, then read 0xB-0xE anytime.
+// value (0xFD-0xFE READ) needs no poll and is independent of capture: write the
+// channel index to 0xFF once, then read 0xFD-0xFE anytime.
 //
 // -----------------------------------------------------------------------
 // Limitations / things to be aware of
@@ -103,10 +107,10 @@
 //  - While a capture is armed, samples stop being pushed the moment the FIFO
 //    is full; unread data is preserved (never overwritten) and acq_full
 //    (status bit1) latches high until the next arm.
-//  - NUM_ADC must be small enough that the entry (addr 0..4*NUM_ADC-1)
-//    does not overlap the control regions (live 0xB-0xE, status 0xF). With
-//    only AD[3:0] routed that means NUM_ADC<=2. Wiring AD[7:4] (8-bit
-//    address) would allow more channels with the control regs moved up.
+//  - NUM_ADC must be small enough that the entry (addr 0..2*NUM_ADC-1)
+//    does not overlap the control regions (live 0xFD-0xFE, ctrl 0xFE,
+//    status 0xFF). With the full 8-bit byte address that means the entry
+//    must end below 0xFD, i.e. NUM_ADC<=126 - 32 fits comfortably.
 //
 // NOTE: ACCESS_DELAY/#-delay statements are simulation-only modelling
 // aids - not synthesisable as-is; replace/remove for real synthesis if
@@ -127,18 +131,17 @@ module FSMC #(
                                      //     (HAL's FMC_WAIT_TIMING_BEFORE_WS).
                                      // 0 = NWAIT reports the *current* cycle's status
                                      //     (FMC_WAIT_TIMING_DURING_WS).
-    parameter NUM_ADC = 2,          // ADC channels per FIFO entry. One entry =
-                                     // 16*NUM_ADC bits = 4*NUM_ADC nibbles. With only
-                                     // AD[3:0] routed (4-bit address) NUM_ADC<=2 so the
-                                     // entry (addr 0..4*NUM_ADC-1) leaves room for the
-                                     // control registers at the top of the 4-bit space.
+    parameter NUM_ADC = 32,         // ADC channels per FIFO entry. One entry =
+                                     // 16*NUM_ADC bits = 2*NUM_ADC bytes. With the full
+                                     // 8-bit byte address the entry (addr 0..2*NUM_ADC-1)
+                                     // sits below the control registers at 0xFD-0xFF.
     // Pass-through parameters for the instantiated psram_fifo
     parameter PSRAM_CLK_DIV     = 4,
     parameter PSRAM_SYS_CLK_MHZ = 50,
     parameter PSRAM_FIFO_DEPTH  = 256
 )(
     // ---- FSMC bus (from STM32) ----
-    inout  wire [3:0] fsmc_ad,    // muxed address / data bus
+    inout  wire [7:0] fsmc_ad,    // muxed address / data bus (all 8 lines routed)
     input  wire       fsmc_ne,    // chip select, active low
     input  wire       fsmc_nadv,  // address valid (FSMC_NL / NADV), active low
     input  wire       fsmc_noe,   // read enable, active low
@@ -155,9 +158,11 @@ module FSMC #(
     input  wire                  adc_rdy,    // pulses high when a fresh sample set is ready
 
     // ---- camera frame averages (sys_clk domain, from OV5640) ----
-    //   quasi-static: updated once per camera frame. Read at 0x9 / 0xA.
-    input  wire [3:0]            cam_red,    // 4-bit average red   (addr 0x9)
-    input  wire [3:0]            cam_green,  // 4-bit average green (addr 0xA)
+    //   quasi-static: updated once per camera frame. Synchronised internally but
+    //   NOT currently decoded to an address (discarded until the full image-read
+    //   pipeline lands; the old 0x9/0x0A nibble reads are gone).
+    input  wire [3:0]            cam_red,    // 4-bit average red   (reserved)
+    input  wire [3:0]            cam_green,  // 4-bit average green (reserved)
 
     // ---- APS6404L QSPI PSRAM pins (passed straight through) ----
     output wire        psram_sclk,
@@ -173,43 +178,38 @@ module FSMC #(
 );
 
     // ---- derived sizes ----
-    localparam ENTRY_BITS = 16 * NUM_ADC;   // bits per FIFO entry (64 for NUM_ADC=4)
-    localparam ENTRY_NIBS = 4  * NUM_ADC;   // nibbles per stored entry (16 for NUM_ADC=4)
-    // The STM32 can only address the low 8 nibbles of an entry over AD[3:0]
-    // (0x0..0x7) and still reach the control/status regs at 0x8..0xF. So reads
-    // expose at most 8 nibbles = up to EFF=2 channels; the STM32 reads exactly
-    // 4*EFF of them. (EFF=4 stores/checks fine but its readout needs a wider bus.)
-    localparam READ_ENTRY_NIBS = (ENTRY_NIBS > 8) ? 8 : ENTRY_NIBS;
-    // Address map (4-bit space, AD[3:0]):
-    //   0x0 .. ENTRY_NIBS-1 : FIFO entry nibbles (read) / debug write (0x0..0x3)
-    //   CAM_RED  (0x9)      : camera average red   (read, 1 nibble)
-    //   CAM_GREEN(0xA)      : camera average green (read, 1 nibble)
-    //   LIVE_BASE(0xB)..+3  : live selected-channel value (16b / 4 nibbles, read)
-    //   CTRL_ADDR(0xE)      : acquisition control (write: 0x1=arm, 0x0=stop)
-    //   STAT_ADDR(0xF)      : status (read) / adc_sel (write)
-    localparam [3:0] LIVE_BASE = 4'hB;      // live value at 0xB,0xC,0xD,0xE (read)
-    localparam [3:0] CTRL_ADDR = 4'hE;      // acquisition control (write): 0x1=arm, 0x0=stop
-    localparam [3:0] STAT_ADDR = 4'hF;      // status (read) / adc_sel (write)
-    localparam [3:0] NUMADC_ADDR = 4'hD;    // effective ADC count log2 (WRITE only; read 0xD = live nibble)
-    localparam [3:0] CAM_RED   = 4'h9;      // camera average red   (read, 1 nibble)
-    localparam [3:0] CAM_GREEN = 4'hA;      // camera average green (read, 1 nibble)
+    localparam ENTRY_BITS  = 16 * NUM_ADC;  // bits per FIFO entry  (512 for NUM_ADC=32)
+    localparam ENTRY_BYTES = 2  * NUM_ADC;  // bytes per stored entry (64 for NUM_ADC=32)
+    // With all 8 AD lines routed the whole entry fits below the control regs
+    // (0xFD-0xFF), so the full entry is readable: 0x00 .. ENTRY_BYTES-1.
+    localparam READ_ENTRY_BYTES = ENTRY_BYTES;
+    // Address map (8-bit byte space, AD[7:0]):
+    //   0x00 .. ENTRY_BYTES-1 : FIFO entry bytes (read) / debug write (0x00..0x01)
+    //   LIVE_BASE(0xFD)..+1   : live selected-channel value (16b / 2 bytes, read)
+    //   NUMADC_ADDR(0xFD)     : effective ADC count log2 (WRITE only; read 0xFD = live low byte)
+    //   CTRL_ADDR(0xFE)       : acquisition control (write: 0x1=arm, 0x0=stop)
+    //   STAT_ADDR(0xFF)       : status byte (read) / adc_sel (write)
+    localparam [7:0] LIVE_BASE   = 8'hFD;   // live value at 0xFD,0xFE (read)
+    localparam [7:0] CTRL_ADDR   = 8'hFE;   // acquisition control (write): 0x1=arm, 0x0=stop
+    localparam [7:0] STAT_ADDR   = 8'hFF;   // status (read) / adc_sel (write)
+    localparam [7:0] NUMADC_ADDR = 8'hFD;   // effective ADC count log2 (WRITE only; read 0xFD = live low byte)
 
     // ---------------------------------------------------------------
     // Address phase: transparent latch while NADV is low; frozen on
-    // the rising edge of NADV. Only 4 bits exist (4 lines routed).
+    // the rising edge of NADV. All 8 address lines are routed.
     // ---------------------------------------------------------------
-    reg [3:0] latch_addr;
+    reg [7:0] latch_addr;
 
     always @(*) begin
         if (!fsmc_nadv)
             latch_addr = fsmc_ad;
     end
 
-    reg [3:0] burst_start_addr;
+    reg [7:0] burst_start_addr;
 
     always @(posedge fsmc_nadv or negedge reset_n) begin
         if (!reset_n)
-            burst_start_addr <= 4'h0;
+            burst_start_addr <= 8'h00;
         else
             burst_start_addr <= latch_addr;
     end
@@ -244,15 +244,15 @@ module FSMC #(
     // ---- Two fsmc_nwe->sys_clk crossings share one synchronizer block ----
     //   * adc_sel        (STAT_ADDR write) : plain 2-FF value sync
     //   * acquisition cmd (CTRL_ADDR write): toggle (edge=new cmd) + data bit
-    reg [3:0] adc_sel;                       // fsmc_nwe domain (write decode below)
-    reg [3:0] adc_sel_sync1, adc_sel_sync2;
+    reg [7:0] adc_sel;                       // fsmc_nwe domain (write decode below)
+    reg [7:0] adc_sel_sync1, adc_sel_sync2;
     reg [1:0] ctrl_cmd_sync;
     reg       ctrl_cmd_sync_prev;
     reg       ctrl_val_sync1, ctrl_val_sync2;
     always @(posedge sys_clk or negedge reset_n) begin
         if (!reset_n) begin
-            adc_sel_sync1      <= 4'h0;
-            adc_sel_sync2      <= 4'h0;
+            adc_sel_sync1      <= 8'h00;
+            adc_sel_sync2      <= 8'h00;
             ctrl_cmd_sync      <= 2'b00;
             ctrl_cmd_sync_prev <= 1'b0;
             ctrl_val_sync1     <= 1'b0;
@@ -526,20 +526,23 @@ module FSMC #(
     wire acq_full_fsmc   = acq_full_sync1;
     wire pf_valid_fsmc   = pf_valid_sync1;
 
-    // Status nibble @STAT_ADDR:
+    // Status byte @STAT_ADDR (0xFF):
     //   bit0=fifo_empty  bit1=acq_full(sticky)  bit2=adc_valid  bit3=data_ready
     //   bit2 = combined ADC address-ack validity across the EFF active channels
     //   (PSRAM self-test valid is no longer here - it stays on psram_is_valid / LED).
-    wire [15:0] status_word = {12'b0, pf_valid_fsmc, is_valid_fsmc, acq_full_fsmc, fifo_empty_fsmc};
+    //   Bit layout is unchanged from the old 4-bit status nibble; upper bits read 0.
+    wire [7:0] status_word = {4'b0, pf_valid_fsmc, is_valid_fsmc, acq_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
     // WRITE path (fsmc_nwe domain)
-    //   STAT_ADDR : write adc_sel (selected live channel)
-    //   addr 0..3 : debug FIFO write - accumulate a 16-bit word, push on 0x3
-    //               (pushed as the low word of an ENTRY_BITS entry, rest 0)
+    //   STAT_ADDR (0xFF) : write adc_sel (selected live channel)
+    //   CTRL_ADDR (0xFE) : acquisition control (bit0: 1=arm, 0=stop)
+    //   NUMADC_ADDR(0xFD): effective ADC-count log2
+    //   addr 0x00..0x01  : debug FIFO write - accumulate a 16-bit word, push on 0x01
+    //                      (pushed as the low word of an ENTRY_BITS entry, rest 0)
     // =================================================================
     reg [15:0] wr_accum;
-    reg [2:0]  num_adc_log2;                // EFF channel-count log2, written by STM32 at 0xD
+    reg [2:0]  num_adc_log2;                // EFF channel-count log2, written by STM32 at 0xFD
     assign o_num_adc_log2 = num_adc_log2;
 
     // acquisition-control command crossed to sys_clk as a toggle + data bit
@@ -550,26 +553,24 @@ module FSMC #(
         if (!reset_n) begin
             wr_accum          <= 16'h0000;
             wr_req_tog_fsmc   <= 1'b0;
-            adc_sel           <= 4'h0;
+            adc_sel           <= 8'h00;
             ctrl_cmd_tog_fsmc <= 1'b0;
             ctrl_cmd_val      <= 1'b0;
             num_adc_log2      <= 3'd1;             // default EFF = 2
         end else if (~fsmc_ne) begin
             if (burst_start_addr == STAT_ADDR) begin
-                adc_sel <= fsmc_ad;                // select live channel
+                adc_sel <= fsmc_ad;                // select live channel (full byte index)
             end else if (burst_start_addr == CTRL_ADDR) begin
                 // acquisition control: bit0 = 1 arm, 0 stop
                 ctrl_cmd_val      <= fsmc_ad[0];
                 ctrl_cmd_tog_fsmc <= ~ctrl_cmd_tog_fsmc;
             end else if (burst_start_addr == NUMADC_ADDR) begin
-                num_adc_log2      <= fsmc_ad[2:0]; // EFF = 1<<val (0->1, 1->2, 2->4)
-            end else if (burst_start_addr < 4'h4) begin
-                case (burst_start_addr[1:0])
-                    2'd0: wr_accum[3:0]   <= fsmc_ad;
-                    2'd1: wr_accum[7:4]   <= fsmc_ad;
-                    2'd2: wr_accum[11:8]  <= fsmc_ad;
-                    2'd3: begin
-                        wr_accum[15:12] <= fsmc_ad;
+                num_adc_log2      <= fsmc_ad[2:0]; // EFF = 1<<val (0->1 .. 5->32)
+            end else if (burst_start_addr < 8'h02) begin
+                case (burst_start_addr[0])
+                    1'b0: wr_accum[7:0]  <= fsmc_ad;
+                    1'b1: begin
+                        wr_accum[15:8]  <= fsmc_ad;
                         wr_req_tog_fsmc <= ~wr_req_tog_fsmc;  // push completed word
                     end
                 endcase
@@ -585,30 +586,30 @@ module FSMC #(
                ST_STREAM  = 2'd2;
 
     reg  [1:0]            state;
-    reg  [3:0]            cur_addr;
-    reg  [3:0]            nib_base;    // first FSMC address of the active region
+    reg  [7:0]            cur_addr;
+    reg  [7:0]            byte_base;   // first FSMC address of the active region
     reg  [7:0]            lat_cnt;
-    reg  [ENTRY_BITS-1:0] rd_holding;  // right-aligned: entry / live(16b) / status(nibble)
+    reg  [ENTRY_BITS-1:0] rd_holding;  // right-aligned: entry / live(16b) / status(byte)
     reg                   rd_consume_tog_fsmc;   // toggled when a prefetched word is taken
 
     wire read_selected = (~fsmc_ne) & (~fsmc_noe);
 
     initial begin
         state               = ST_IDLE;
-        cur_addr            = 4'h0;
-        nib_base            = 4'h0;
+        cur_addr            = 8'h00;
+        byte_base           = 8'h00;
         lat_cnt             = 8'h00;
         rd_holding          = {ENTRY_BITS{1'b0}};
         rd_consume_tog_fsmc = 1'b0;
-        burst_start_addr    = 4'h0;
-        latch_addr          = 4'h0;
+        burst_start_addr    = 8'h00;
+        latch_addr          = 8'h00;
     end
 
     always @(posedge fsmc_clk or posedge fsmc_ne or negedge reset_n) begin
         if (!reset_n) begin
             state               <= ST_IDLE;
-            cur_addr            <= 4'h0;
-            nib_base            <= 4'h0;
+            cur_addr            <= 8'h00;
+            byte_base           <= 8'h00;
             lat_cnt             <= 8'h0;
             rd_holding          <= {ENTRY_BITS{1'b0}};
             rd_consume_tog_fsmc <= 1'b0;
@@ -619,35 +620,27 @@ module FSMC #(
                 ST_IDLE: begin
                     cur_addr <= burst_start_addr;
                     // ---- region decode + load (only at a region's first address) ----
-                    if (burst_start_addr < READ_ENTRY_NIBS) begin
-                        // FIFO entry region (0x0 .. READ_ENTRY_NIBS-1)
-                        nib_base <= 4'h0;
-                        if (burst_start_addr == 4'h0 && pf_valid_fsmc) begin
+                    if (burst_start_addr < READ_ENTRY_BYTES) begin
+                        // FIFO entry region (0x00 .. ENTRY_BYTES-1)
+                        byte_base <= 8'h00;
+                        if (burst_start_addr == 8'h00 && pf_valid_fsmc) begin
                             // take the prefetched entry; addr 1.. just replay it
                             rd_holding          <= pf_data;
                             rd_consume_tog_fsmc <= ~rd_consume_tog_fsmc;  // fetch next
                         end
-                    end else if (burst_start_addr == CAM_RED) begin
-                        // camera average red (single nibble)
-                        nib_base   <= CAM_RED;
-                        rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_red_sync1};
-                    end else if (burst_start_addr == CAM_GREEN) begin
-                        // camera average green (single nibble)
-                        nib_base   <= CAM_GREEN;
-                        rd_holding <= {{(ENTRY_BITS-4){1'b0}}, cam_green_sync1};
                     end else if (burst_start_addr >= LIVE_BASE &&
-                                 burst_start_addr <  LIVE_BASE + 4'h4) begin
-                        // live selected-channel value (16 bits, 4 nibbles)
-                        nib_base <= LIVE_BASE;
+                                 burst_start_addr <  LIVE_BASE + 8'h02) begin
+                        // live selected-channel value (16 bits, 2 bytes: 0xFD,0xFE)
+                        byte_base <= LIVE_BASE;
                         if (burst_start_addr == LIVE_BASE)
                             rd_holding <= {{(ENTRY_BITS-16){1'b0}}, live_val};
                     end else if (burst_start_addr == STAT_ADDR) begin
-                        // status nibble
-                        nib_base   <= STAT_ADDR;
-                        rd_holding <= {{(ENTRY_BITS-16){1'b0}}, status_word};
+                        // status byte (0xFF)
+                        byte_base  <= STAT_ADDR;
+                        rd_holding <= {{(ENTRY_BITS-8){1'b0}}, status_word};
                     end else begin
                         // unused addresses - replay whatever is in rd_holding
-                        nib_base <= 4'h0;
+                        byte_base <= 8'h00;
                     end
                     // uniform short bounded latency path (no long NWAIT stall)
                     if (LATENCY_CYCLES <= 1)
@@ -664,7 +657,7 @@ module FSMC #(
                         lat_cnt <= lat_cnt - 8'd1;
                 end
                 ST_STREAM: begin
-                    cur_addr <= cur_addr + 4'd1;  // advances through the region's nibbles
+                    cur_addr <= cur_addr + 8'd1;  // advances through the region's bytes
                 end
                 default: state <= ST_IDLE;
             endcase
@@ -696,24 +689,25 @@ module FSMC #(
     end
 
     // ---------------------------------------------------------------
-    // Select nibble `sel` (region-relative) of the ENTRY_BITS holding reg
+    // Select byte `sel` (region-relative) of the ENTRY_BITS holding reg
     // ---------------------------------------------------------------
-    function [3:0] select_nibble;
+    function [7:0] select_byte;
         input [ENTRY_BITS-1:0] word;
-        input [2:0]            sel;     // 0 .. ENTRY_NIBS-1
+        input [5:0]            sel;     // 0 .. ENTRY_BYTES-1 (<=63)
         begin
-            select_nibble = word[sel*4 +: 4];
+            select_byte = word[sel*8 +: 8];
         end
     endfunction
 
-    // nibble index within the active region = absolute address - region base
-    wire [3:0] nib_idx = cur_addr - nib_base;
+    // byte index within the active region = absolute address - region base
+    wire [7:0] byte_idx = cur_addr - byte_base;
 
     // ---------------------------------------------------------------
-    // Drive AD bus with a holding-register nibble only while streaming
+    // Drive AD bus with a holding-register byte only while streaming
+    // (index bounded to 6 bits: the entry is at most ENTRY_BYTES=64 bytes)
     // ---------------------------------------------------------------
     assign #(ACCESS_DELAY) fsmc_ad =
-        (read_selected && state == ST_STREAM) ? select_nibble(rd_holding, nib_idx[2:0]) : 4'bz;
+        (read_selected && state == ST_STREAM) ? select_byte(rd_holding, byte_idx[5:0]) : 8'bz;
 
     // ---------------------------------------------------------------
     // NWAIT: "please wait" while not yet streaming; reports either the

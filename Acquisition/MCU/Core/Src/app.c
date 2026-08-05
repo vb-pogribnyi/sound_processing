@@ -137,8 +137,11 @@ void task_retr_main_func(void* pvParameters) {
 	BaseType_t result;
 	const TickType_t xMaxBlockTime = pdMS_TO_TICKS( 500 );
 
-	BASE[0xD] = 0;					 // Capture 1 ADC
-	BASE[0xF] = 0;                   // Select ADC to be reported as periodic
+
+	while (!HAL_GPIO_ReadPin(FPGA_Done_GPIO_Port, FPGA_Done_Pin)) taskYIELD();
+
+	BASE[0xFD] = 1;					  // Capture 2 ADCs
+	BASE[0xFF] = 0;                   // Select ADC to be reported as periodic
 
 	// The sub-ms drain timeout below uses the DWT cycle counter; ensure it runs
 	// (SEGGER_SYSVIEW_Conf() also enables it, but do not depend on that here).
@@ -172,8 +175,8 @@ void task_retr_main_func(void* pvParameters) {
 			if (!capture_active) {          // start a NEW capture on the first request
 				uint8_t log2n = 0;          // tell FPGA the effective channel count:
 				for (uint8_t t = num_adcs; t > 1u; t >>= 1) log2n++;  // floor(log2(num_adcs))
-				BASE[0xD] = log2n;          // EFF = 1<<log2n; masks absent-channel checks in FPGA
-				BASE[0xE] = 1;              // arm: rewind FPGA FIFO, enable polling
+				BASE[0xFD] = log2n;          // EFF = 1<<log2n; masks absent-channel checks in FPGA
+				BASE[0xFE] = 1;              // arm: rewind FPGA FIFO, enable polling
 				sound_buff_idx = 0;
 				is_done = 0;
 				capture_active = 1;
@@ -214,10 +217,8 @@ void task_retr_main_func(void* pvParameters) {
 					// them interleaved: sound[] = ch0,ch1,..,chN-1,ch0,ch1,..
 					FPGA_LOCK();                   // atomic vs the TIM3 periodic ISR's FPGA reads
 					for (uint8_t ch = 0; ch < num_adcs; ch++) {
-						uint16_t w =  (p[ch*4 + 0] & 0xF);
-						w |= (uint16_t)(p[ch*4 + 1] & 0xF) << 4;
-						w |= (uint16_t)(p[ch*4 + 2] & 0xF) << 8;
-						w |= (uint16_t)(p[ch*4 + 3] & 0xF) << 12;
+						uint16_t w =  (p[ch*4 + 0]);
+						w |= (uint16_t)(p[ch*4 + 1]) << 8;
 						sound[sound_buff_idx++] = (int16_t)w;
 					}
 					FPGA_UNLOCK();
@@ -286,11 +287,12 @@ void task_retr_main_func(void* pvParameters) {
 }
 
 void capture_periodic() {
+	if (!HAL_GPIO_ReadPin(FPGA_Done_GPIO_Port, FPGA_Done_Pin)) return;
 
 	FPGA_LOCK();                           // atomic vs the sound-drain task's FPGA reads
-	current_sample = (BASE[0xB]&0xF) | (BASE[0xC]&0xF)<<4 | (BASE[0xD]&0xF)<<8 | (BASE[0xE]&0xF)<<12;
-	red   = (BASE[0x9] & 0xF);
-	green = (BASE[0xA] & 0xF);
+	current_sample = (BASE[0xFD]&0xF) | (BASE[0xFE]&0xF)<<8;
+//	red   = (BASE[0x9] & 0xF);
+//	green = (BASE[0xA] & 0xF);
 	FPGA_UNLOCK();
 
 	if (state != SLEEPING) {
