@@ -99,7 +99,7 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 // other address (e.g. 0x4) returns FIFO-entry data nibbles, NOT these bits.
 //   bit0 = FIFO empty   bit1 = acq_full (sticky: capture auto-stopped when the
 //   FPGA FIFO filled)   bit2 = is_valid (PSRAM self-test ok)   bit3 = data_ready
-#define STATUS_ADDR     0xF
+#define STATUS_ADDR     0xFF
 #define ST_FIFO_EMPTY   0x01            // status bit0
 #define ST_FIFO_FULL    0x02            // status bit1 (acq_full: capture stopped)
 #define ST_IS_VALID     0x04            // status bit2
@@ -140,7 +140,7 @@ void task_retr_main_func(void* pvParameters) {
 
 	while (!HAL_GPIO_ReadPin(FPGA_Done_GPIO_Port, FPGA_Done_Pin)) taskYIELD();
 
-	BASE[0xFD] = 1;					  // Capture 2 ADCs
+	BASE[0xFD] = 0;					  // Capture 1 ADC at start
 	BASE[0xFF] = 0;                   // Select ADC to be reported as periodic
 
 	// The sub-ms drain timeout below uses the DWT cycle counter; ensure it runs
@@ -217,8 +217,8 @@ void task_retr_main_func(void* pvParameters) {
 					// them interleaved: sound[] = ch0,ch1,..,chN-1,ch0,ch1,..
 					FPGA_LOCK();                   // atomic vs the TIM3 periodic ISR's FPGA reads
 					for (uint8_t ch = 0; ch < num_adcs; ch++) {
-						uint16_t w =  (p[ch*4 + 0]);
-						w |= (uint16_t)(p[ch*4 + 1]) << 8;
+						uint16_t w =  (p[ch*2 + 0]);
+						w |= (uint16_t)(p[ch*2 + 1]) << 8;
 						sound[sound_buff_idx++] = (int16_t)w;
 					}
 					FPGA_UNLOCK();
@@ -290,7 +290,7 @@ void capture_periodic() {
 	if (!HAL_GPIO_ReadPin(FPGA_Done_GPIO_Port, FPGA_Done_Pin)) return;
 
 	FPGA_LOCK();                           // atomic vs the sound-drain task's FPGA reads
-	current_sample = (BASE[0xFD]&0xF) | (BASE[0xFE]&0xF)<<8;
+	current_sample = (BASE[0xFD]) | (BASE[0xFE])<<8;
 //	red   = (BASE[0x9] & 0xF);
 //	green = (BASE[0xA] & 0xF);
 	FPGA_UNLOCK();
