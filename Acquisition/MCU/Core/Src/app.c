@@ -24,7 +24,7 @@ int16_t adc_values[4] = {0};
 extern uint8_t adc_fstatus;
 
 uint8_t usb_sound_response[4];
-uint8_t num_adcs = 1;
+uint8_t num_adcs = 16;
 #define PERIODIC_BUFFER 1024*2
 #define SEGGER_BUFFER 1024*4
 uint8_t segger_usb_buf[SEGGER_BUFFER] = {0};
@@ -204,7 +204,7 @@ void task_retr_main_func(void* pvParameters) {
 			// no more data will ever come, so flag is_done and stop immediately.
 			const uint32_t drain_gap_timeout = SystemCoreClock / 1000u;   // 1 ms in CPU cycles
 			uint32_t last_sample_cycles = DWT->CYCCNT;
-			while (sound_buff_idx + num_adcs <= 256) {
+			while (sound_buff_idx + num_adcs <= 256*16) {
 //			while (sound_buff_idx + num_adcs <= SOUND_ITEMS) {
 				uint8_t status = p[STATUS_ADDR];
 				if (status & ST_DATA_READY) {

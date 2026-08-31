@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 N = 256
-N_CYCLES = 10
+N_CYCLES = 1
 AMPLITUDE = 32767
 with open("sine.hex", "w") as f:
   xs = np.linspace(0, 2 * np.pi * N_CYCLES, N * N_CYCLES)

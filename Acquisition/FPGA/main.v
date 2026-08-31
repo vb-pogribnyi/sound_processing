@@ -327,7 +327,7 @@ module led(
     localparam CLK_DIV     = 4;
     localparam SYS_CLK_MHZ = 50;
     // localparam FIFO_DEPTH  = 8;    // small for fast simulation
-    localparam PSRAM_CLK_DIV     = 4;
+    localparam PSRAM_CLK_DIV     = 1;
     localparam PSRAM_SYS_CLK_MHZ = 50;
     localparam PSRAM_FIFO_DEPTH  = 16384;
     wire [nADC*16-1:0]     data_in;
@@ -385,7 +385,7 @@ module led(
     wire [15:0]           sine_addr;         // current sample index (debug)
     AdcSim #(
         .NUM_ADC      (NUM_ADC),
-        .SINE_SAMPLES (2560),
+        .SINE_SAMPLES (256),
         .SINE_DIV     (1024),               // ~48.8 kHz @ 50 MHz (spaced > 1 PSRAM write)
         .HEX_FILE     ("sine.hex")
     ) adc_sim (
@@ -472,125 +472,125 @@ module led(
     assign o_GND = 0;
      
      
-     always @(posedge i_CLK) begin
-       if (out4 < 35000) begin
-          var_switch <= var_switch + 1;
-        end
-       // o_DBG <= i_RST;
-       // o_DBG <= clk_slow;
-        //counter_intensity <= counter_intensity + 1;
-        
-        
-        if (clk_cnt == 0) begin
-            clk_slow <= ~clk_slow;
-        end
-        clk_cnt <= clk_cnt + 1;
-        if (clk_cnt == 3) begin
-            clk_cnt <= 0;
-        end
-        /*
-        // PWM led indication
-        if (counter_intensity < var1) begin
-          o_LED <= 1'b1;
-          o_DBG <= 1'b1;
-        end else begin
-          o_LED <= 1'b0;
-          o_DBG <= 1'b0;
-        end
-        */
-        /*
-        if (counter_intensity < var1) begin
-          o_LED0 <= 1'b0;
-          //o_DBG <= 1'b1;
-        end else begin
-          o_LED0 <= 1'b1;
-          //o_DBG <= 1'b0;
-        end
-        if (counter_intensity < var2) begin
-          o_LED1 <= 1'b0;
-          //o_DBG <= 1'b1;
-        end else begin
-          o_LED1 <= 1'b1;
-          //o_DBG <= 1'b0;
-        end
-        if (counter_intensity < var3) begin
-          o_LED2 <= 1'b0;
-          //o_DBG <= 1'b1;
-        end else begin
-          o_LED2 <= 1'b1;
-          //o_DBG <= 1'b0;
-        end
-        if (counter_intensity < var4) begin
-          o_LED3 <= 1'b1;
-          //o_DBG <= 1'b1;
-        end else begin
-          o_LED3 <= 1'b0;
-          //o_DBG <= 1'b0;
-        end*/
-        
-        
-        /*
-        if (o_CNT < 5) begin
-          o_LED <= 1'b0;
-        end else begin
-          o_LED <= 1'b1;
-        end
-        */
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        // Detect clock button press
-        // if is_on was not set and button remains pressed for 10 ms
-        // then set is_on.
-       if (!is_on) begin
-            if (!i_BTN) begin
-                counter <= counter + 1;
-                if (counter >= COUNT_MAX) begin
-                    is_on <= 1'b1;
-                    counter <= 0;
-                    counter_presses <= counter_presses + 1;
-                end
-            end else begin
-                counter <= 0;
-            end
-        // if is_on was set then wait until the button is not pressed
-        // for at least 10 ms
-        end else begin
-            if (i_BTN) begin
-                counter <= counter + 1;
-                if (counter >= COUNT_MAX) begin
-                    is_on <= 1'b0;
-                    counter <= 0;
-                end
-            end else begin
-                counter <= 0;
-            end
-        end
-        
-        
-        // Detect reset button press in the same way
-        if (!i_RST) begin // it turns out to be active low...
-            counter_rst <= counter_rst + 1;
-            if (counter_rst >= COUNT_MAX) begin
-                counter_rst <= 0;
-                counter_presses <= 0;
-            end
-        end else begin
-            counter_rst <= 0;
-        end
-        
-    end
-     
-        assign mean = mean1 + 10000 < 30000 ? mean1 + 10000 : 0;
+//     always @(posedge i_CLK) begin
+//       if (out4 < 35000) begin
+//          var_switch <= var_switch + 1;
+//        end
+//       // o_DBG <= i_RST;
+//       // o_DBG <= clk_slow;
+//        //counter_intensity <= counter_intensity + 1;
+//        
+//        
+//        if (clk_cnt == 0) begin
+//            clk_slow <= ~clk_slow;
+//        end
+//        clk_cnt <= clk_cnt + 1;
+//        if (clk_cnt == 3) begin
+//            clk_cnt <= 0;
+//        end
+//        /*
+//        // PWM led indication
+//        if (counter_intensity < var1) begin
+//          o_LED <= 1'b1;
+//          o_DBG <= 1'b1;
+//        end else begin
+//          o_LED <= 1'b0;
+//          o_DBG <= 1'b0;
+//        end
+//        */
+//        /*
+//        if (counter_intensity < var1) begin
+//          o_LED0 <= 1'b0;
+//          //o_DBG <= 1'b1;
+//        end else begin
+//          o_LED0 <= 1'b1;
+//          //o_DBG <= 1'b0;
+//        end
+//        if (counter_intensity < var2) begin
+//          o_LED1 <= 1'b0;
+//          //o_DBG <= 1'b1;
+//        end else begin
+//          o_LED1 <= 1'b1;
+//          //o_DBG <= 1'b0;
+//        end
+//        if (counter_intensity < var3) begin
+//          o_LED2 <= 1'b0;
+//          //o_DBG <= 1'b1;
+//        end else begin
+//          o_LED2 <= 1'b1;
+//          //o_DBG <= 1'b0;
+//        end
+//        if (counter_intensity < var4) begin
+//          o_LED3 <= 1'b1;
+//          //o_DBG <= 1'b1;
+//        end else begin
+//          o_LED3 <= 1'b0;
+//          //o_DBG <= 1'b0;
+//        end*/
+//        
+//        
+//        /*
+//        if (o_CNT < 5) begin
+//          o_LED <= 1'b0;
+//        end else begin
+//          o_LED <= 1'b1;
+//        end
+//        */
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        
+//        // Detect clock button press
+//        // if is_on was not set and button remains pressed for 10 ms
+//        // then set is_on.
+//       if (!is_on) begin
+//            if (!i_BTN) begin
+//                counter <= counter + 1;
+//                if (counter >= COUNT_MAX) begin
+//                    is_on <= 1'b1;
+//                    counter <= 0;
+//                    counter_presses <= counter_presses + 1;
+//                end
+//            end else begin
+//                counter <= 0;
+//            end
+//        // if is_on was set then wait until the button is not pressed
+//        // for at least 10 ms
+//        end else begin
+//            if (i_BTN) begin
+//                counter <= counter + 1;
+//                if (counter >= COUNT_MAX) begin
+//                    is_on <= 1'b0;
+//                    counter <= 0;
+//                end
+//            end else begin
+//                counter <= 0;
+//            end
+//        end
+//        
+//        
+//        // Detect reset button press in the same way
+//        if (!i_RST) begin // it turns out to be active low...
+//            counter_rst <= counter_rst + 1;
+//            if (counter_rst >= COUNT_MAX) begin
+//                counter_rst <= 0;
+//                counter_presses <= 0;
+//            end
+//        end else begin
+//            counter_rst <= 0;
+//        end
+//        
+//    end
+//     
+//        assign mean = mean1 + 10000 < 30000 ? mean1 + 10000 : 0;
  endmodule

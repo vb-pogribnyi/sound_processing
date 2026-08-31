@@ -22,7 +22,7 @@
 // =====================================================================
 module AdcSim #(
     parameter NUM_ADC      = 2,
-    parameter SINE_SAMPLES = 2560,       // number of samples (lines) in HEX_FILE
+    parameter SINE_SAMPLES = 256,       // number of samples (lines) in HEX_FILE
     parameter SINE_DIV     = 1024,       // i_CLK cycles between samples
     parameter HEX_FILE     = "sine.hex"
 )(

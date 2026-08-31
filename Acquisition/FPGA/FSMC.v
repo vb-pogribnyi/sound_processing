@@ -131,12 +131,12 @@ module FSMC #(
                                      //     (HAL's FMC_WAIT_TIMING_BEFORE_WS).
                                      // 0 = NWAIT reports the *current* cycle's status
                                      //     (FMC_WAIT_TIMING_DURING_WS).
-    parameter NUM_ADC = 32,         // ADC channels per FIFO entry. One entry =
+    parameter NUM_ADC = 16,         // ADC channels per FIFO entry. One entry =
                                      // 16*NUM_ADC bits = 2*NUM_ADC bytes. With the full
                                      // 8-bit byte address the entry (addr 0..2*NUM_ADC-1)
                                      // sits below the control registers at 0xFD-0xFF.
     // Pass-through parameters for the instantiated psram_fifo
-    parameter PSRAM_CLK_DIV     = 4,
+    parameter PSRAM_CLK_DIV     = 1,
     parameter PSRAM_SYS_CLK_MHZ = 50,
     parameter PSRAM_FIFO_DEPTH  = 256
 )(
