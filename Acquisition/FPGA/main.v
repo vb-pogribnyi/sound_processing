@@ -175,7 +175,7 @@ module led(
     wire [31:0] miso;
     wire [2:0] mcp_state;
     wire [2:0] num_adc_log2;      // EFF = 1<<this, from FSMC 0xFD write -> MCP3461Master mask
-    wire       adc_valid;         // combined ADC address-ack validity -> FSMC status bit2
+    // wire       adc_valid;         // combined ADC address-ack validity -> FSMC status bit2
     wire       mcp_cs;            // single logical chip select -> both o_MCP_nCS_1/2
     assign miso[0]  = i_MCP_SDO1;  assign miso[1]  = i_MCP_SDO2;  assign miso[2]  = i_MCP_SDO3;  assign miso[3]  = i_MCP_SDO4;
     assign miso[4]  = i_MCP_SDO5;  assign miso[5]  = i_MCP_SDO6;  assign miso[6]  = i_MCP_SDO7;  assign miso[7]  = i_MCP_SDO8;
@@ -210,7 +210,7 @@ module led(
         .o_STATE(mcp_state),
         .o_VALUE(outputs),
         .o_RDY(rdy),
-        .o_VALID(adc_valid)
+        .o_VALID(health_state[1])
     );
     // Both PCB chip-select pins carry the same logical CS (one bank each).
     assign o_MCP_nCS_1 = mcp_cs;
@@ -316,13 +316,13 @@ module led(
     // );
 	 assign o_RDY = 0;
 
-    wire [3:0] psram_state;
+    wire [3:0] health_state;
     // wire psram_fifo_empty;
     // wire psram_fifo_full;
     // reg wr_toggle = 0;
     // reg rd_toggle = 0;
     reg fsmc_reset = 1;
-    assign psram_state[3:1] = 0;
+    assign health_state[3:2] = 0;
     localparam nADC        = 1;
     localparam CLK_DIV     = 4;
     localparam SYS_CLK_MHZ = 50;
@@ -423,8 +423,8 @@ module led(
         .psram_sclk    (o_PSRAM_CLK),
         .psram_ce_n    (o_PSRAM_CE),
         .psram_sio     (PSRAM_SIO),
-        .psram_is_valid(psram_state[0]),
-        .i_adc_valid   (adc_valid),
+        .psram_is_valid(health_state[0]),
+        .i_adc_valid   (health_state[1]),
         .o_num_adc_log2(num_adc_log2)
     );
     // PSRAM #(
@@ -442,7 +442,7 @@ module led(
     //     .data_valid  (data_valid),
     //     .fifo_full   (psram_fifo_full),
     //     .fifo_empty  (psram_fifo_empty),
-    //     .is_valid    (psram_state[0]),
+    //     .is_valid    (health_state[0]),
     //     .psram_sclk  (o_PSRAM_CLK),
     //     .psram_ce_n  (o_PSRAM_CE),
     //     .psram_sio   (PSRAM_SIO)
@@ -459,7 +459,7 @@ module led(
         .i_VAR3(var3),
         .i_VAR4(var4),
         // .i_STATE(mcp_state),
-        .i_STATE(psram_state),
+        .i_STATE(health_state),
         .o_LED1P(o_LED1P),
         .o_LED2P(o_LED2P),
         .o_LED1N(o_LED1N),

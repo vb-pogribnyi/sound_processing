@@ -38,10 +38,13 @@ module Leds(
     );
      
      reg [15:0] counter_intensity;
+     reg [15:0] counter_adchealth;
+     localparam counter_half = 16'hE000;
+     localparam counter_adchealth_max = 16'hFFFF - counter_half;
      
      always @(posedge i_CLK) begin
         counter_intensity <= counter_intensity + 1;
-        if (counter_intensity < 16'hE000) begin
+        if (counter_intensity < counter_half) begin
              o_LED1P <= 1;
              o_LED2P <= 0;
             if (counter_intensity < i_VAR1) begin
@@ -98,22 +101,33 @@ module Leds(
             // end else begin
             //     o_LED4N <= 1;
             // end
-            if (i_STATE == 0) begin
+
+
+            if (i_STATE[0] == 1) begin  // PSRAM status
                 o_LED1N <= 0;
             end else begin
                 o_LED1N <= 1;
             end 
-            if (i_STATE == 1) begin
+
+            if (i_STATE[1] == 1) begin  // ADC synchronization
+                if (counter_adchealth < counter_adchealth_max) begin
+                    counter_adchealth <= counter_adchealth + 1;
+                end
+            end else begin
+                counter_adchealth <= 0;
+            end 
+            if (counter_intensity < counter_adchealth + counter_half) begin
                 o_LED2N <= 0;
             end else begin
                 o_LED2N <= 1;
-            end 
-            if (i_STATE == 2) begin
+            end
+
+            if (i_STATE[2] == 1) begin
                 o_LED3N <= 0;
             end else begin
                 o_LED3N <= 1;
             end 
-            if (i_STATE == 3) begin
+            if (i_STATE[3] == 1) begin
                 o_LED4N <= 0;
             end else begin
                 o_LED4N <= 1;
