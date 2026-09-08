@@ -15,10 +15,13 @@
 //         HIGH -> a 4-channel sine pattern replayed from sine.hex is fed
 //                 into the FIFO as ADC samples (see "SW1 test feed" below).
 //         LOW  -> the live MCP3461 ADC feeds the FIFO (normal operation).
-//   SW2 : (unused) wired to Leds.i_SW1; the Leds block that read it is
-//         commented out, so it currently has no effect.
-//   SW3 : (unused) wired to Leds.i_SW2 and to sw34[1] (sw34 only feeds the
-//         commented-out OutputterBuff); no effect at present.
+//   SW2 : DIAGNOSTIC - HIGH bypasses the MCP3461 o_RDY validity gate
+//         (i_IGNORE_VALID): a channel that fails its address-ack can no longer
+//         stall the shared sample clock. Use to test the "validity gate
+//         throttles the stream" hypothesis. Also still wired to Leds.i_SW1.
+//   SW3 : DIAGNOSTIC - HIGH free-runs the reader (i_FREERUN): a read is issued
+//         every loop, ignoring the ADC DRDY/IRQ. If the stream speeds up, the
+//         ADC conversion/IRQ cadence was the bottleneck. Also -> Leds.i_SW2.
 //   SW4 : MCP3461 PGA gain select -> 1x (see adc_gain). Also wired to
 //         Leds.i_SW3 / sw34[0] (no effect there).
 //   SW5 : MCP3461 PGA gain select -> 2x, takes priority over SW4 (see
@@ -174,6 +177,9 @@ module led(
 
     wire [31:0] miso;
     wire [2:0] mcp_state;
+    wire [NUM_ADC-1:0] dbg_reader_rdy;    // per-channel frame-ready   (-> FSMC diag)
+    wire [NUM_ADC-1:0] dbg_reader_valid;  // per-channel address-ack   (-> FSMC diag)
+    wire               dbg_rdy_all;       // all active ready, validity ignored (-> FSMC diag + health LED)
     wire [2:0] num_adc_log2;      // EFF = 1<<this, from FSMC 0xFD write -> MCP3461Master mask
     // wire       adc_valid;         // combined ADC address-ack validity -> FSMC status bit2
     wire       mcp_cs;            // single logical chip select -> both o_MCP_nCS_1/2
@@ -202,6 +208,8 @@ module led(
         .i_INTERRUPT(i_MCP_nIRQ),
         .i_GAIN(adc_gain),
         .i_NUM_ADC_LOG2(num_adc_log2),
+        .i_IGNORE_VALID(i_SW2),   // SW2 ON -> bypass the RDY validity gate (diagnostic)
+        .i_FREERUN(i_SW3),        // SW3 ON -> free-run reads, ignore ADC IRQ (diagnostic)
         .i_MISO(miso[NUM_ADC-1:0]),
         .o_MOSI(o_MCP_SDI),
         .o_CS(mcp_cs),
@@ -210,7 +218,10 @@ module led(
         .o_STATE(mcp_state),
         .o_VALUE(outputs),
         .o_RDY(rdy),
-        .o_VALID(health_state[1])
+        .o_VALID(health_state[1]),
+        .o_READER_RDY(dbg_reader_rdy),
+        .o_READER_VALID(dbg_reader_valid),
+        .o_RDY_ALL(dbg_rdy_all)
     );
     // Both PCB chip-select pins carry the same logical CS (one bank each).
     assign o_MCP_nCS_1 = mcp_cs;
@@ -323,15 +334,15 @@ module led(
     // reg rd_toggle = 0;
     reg fsmc_reset = 1;
     assign health_state[3:2] = 0;
-    localparam nADC        = 1;
+//    localparam nADC        = 1;
     localparam CLK_DIV     = 4;
     localparam SYS_CLK_MHZ = 50;
     // localparam FIFO_DEPTH  = 8;    // small for fast simulation
-    localparam PSRAM_CLK_DIV     = 1;
+    localparam PSRAM_CLK_DIV     = 2;
     localparam PSRAM_SYS_CLK_MHZ = 50;
     localparam PSRAM_FIFO_DEPTH  = 16384;
-    wire [nADC*16-1:0]     data_in;
-    wire [nADC*16-1:0]     data_out;
+//    wire [nADC*16-1:0]     data_in;
+//    wire [nADC*16-1:0]     data_out;
     
     
     // localparam LATENCY_CYCLES  = 2;
@@ -425,7 +436,14 @@ module led(
         .psram_sio     (PSRAM_SIO),
         .psram_is_valid(health_state[0]),
         .i_adc_valid   (health_state[1]),
-        .o_num_adc_log2(num_adc_log2)
+        .o_num_adc_log2(num_adc_log2),
+        // ---- diagnostics readable by the STM32 at 0xE0..0xEB ----
+        .i_dbg_state       (mcp_state),
+        .i_dbg_reader_valid(dbg_reader_valid),
+        .i_dbg_reader_rdy  (dbg_reader_rdy),
+        .i_dbg_rdy_gated   (rdy),           // gated o_RDY = actual FIFO-feed rate
+        .i_dbg_rdy_all     (dbg_rdy_all),   // ungated = rate if validity ignored
+        .i_dbg_irq         (i_MCP_nIRQ)     // raw ADC IRQ (active low)
     );
     // PSRAM #(
     //     .nADC        (nADC),

@@ -174,7 +174,17 @@ module FSMC #(
 
     // ---- effective ADC count + ADC address-ack validity ----
     input  wire        i_adc_valid,    // combined is_valid across EFF active ADCs (i_CLK50 domain)
-    output wire [2:0]  o_num_adc_log2  // EFF = 1<<this; STM32 writes it at 0xD (feeds MCP3461Master)
+    output wire [2:0]  o_num_adc_log2, // EFF = 1<<this; STM32 writes it at 0xD (feeds MCP3461Master)
+
+    // ---- diagnostics (sys_clk domain; MCP3461Master shares sys_clk = i_CLK) ----
+    // A read-only register block at DIAG_BASE (0xE0..0xEB) the STM32 can poll to
+    // pin-point where the live-ADC stream stalls. See the DIAG map comment below.
+    input  wire [2:0]          i_dbg_state,        // MCP3461Master FSM state (o_STATE)
+    input  wire [NUM_ADC-1:0]  i_dbg_reader_valid, // per-channel address-ack pass
+    input  wire [NUM_ADC-1:0]  i_dbg_reader_rdy,   // per-channel frame-ready
+    input  wire                i_dbg_rdy_gated,    // o_RDY  (ready AND valid, gated) -> FIFO write clock
+    input  wire                i_dbg_rdy_all,      // o_RDY_ALL (ready, validity ignored)
+    input  wire                i_dbg_irq           // raw MCP nIRQ (active low)
 );
 
     // ---- derived sizes ----
@@ -193,6 +203,23 @@ module FSMC #(
     localparam [7:0] CTRL_ADDR   = 8'hFE;   // acquisition control (write): 0x1=arm, 0x0=stop
     localparam [7:0] STAT_ADDR   = 8'hFF;   // status (read) / adc_sel (write)
     localparam [7:0] NUMADC_ADDR = 8'hFD;   // effective ADC count log2 (WRITE only; read 0xFD = live low byte)
+    // -----------------------------------------------------------------------
+    // DIAGNOSTIC register block (READ only), byte addresses DIAG_BASE..+11.
+    // Sits below the entry region ceiling only for NUM_ADC>=8 (ENTRY_BITS>=128)
+    // and clear of the live/ctrl/status regs at 0xFD-0xFF. STM32 reads each byte
+    // as an independent access; the whole block is (re)loaded on any diag read.
+    //   0xE0 : [2:0]=state [4:3]=acq_state [5]=polling [6]=acq_full [7]=psram_valid
+    //   0xE1 : [2:0]=num_adc_log2(EFF log2) [5]=fifo_empty [6]=fifo_full [7]=data_ready
+    //   0xE2..E3 : reader_valid[15:0]   (bit c set = channel c passed address-ack)
+    //   0xE4..E5 : reader_rdy[15:0]     (bit c set = channel c produced a fresh frame)
+    //   0xE6..E7 : cnt_rdy_gated[15:0]  (o_RDY edges  = actual FIFO-feeding sample rate)
+    //   0xE8..E9 : cnt_rdy_all[15:0]    (o_RDY_ALL edges = rate if validity ignored)
+    //   0xEA..EB : cnt_irq[15:0]        (raw MCP nIRQ falling edges = ADC conversion rate)
+    // Compare the three counters over a known interval: cnt_rdy_all>>cnt_rdy_gated
+    // => the validity gate throttles; all three low => the ADC/master isn't
+    // converting/reading (check state + i_FREERUN via SW3).
+    // -----------------------------------------------------------------------
+    localparam [7:0] DIAG_BASE   = 8'hE0;
 
     // ---------------------------------------------------------------
     // Address phase: transparent latch while NADV is low; frozen on
@@ -534,6 +561,43 @@ module FSMC #(
     wire [7:0] status_word = {4'b0, pf_valid_fsmc, is_valid_fsmc, acq_full_fsmc, fifo_empty_fsmc};
 
     // =================================================================
+    // DIAGNOSTIC counters (sys_clk domain - same clock as MCP3461Master).
+    // Count rising edges of the gated / ungated sample-ready strobes and the
+    // falling edges of the active-low ADC IRQ. Free-running; the STM32 reads
+    // them twice a known interval apart and takes the delta to get a rate.
+    // =================================================================
+    reg        dbg_rdy_g_d, dbg_rdy_a_d, dbg_irq_d;
+    reg [15:0] cnt_rdy_gated, cnt_rdy_all, cnt_irq;
+    always @(posedge sys_clk or negedge reset_n) begin
+        if (!reset_n) begin
+            dbg_rdy_g_d   <= 1'b0;
+            dbg_rdy_a_d   <= 1'b0;
+            dbg_irq_d     <= 1'b1;   // IRQ idles high (active low)
+            cnt_rdy_gated <= 16'd0;
+            cnt_rdy_all   <= 16'd0;
+            cnt_irq       <= 16'd0;
+        end else begin
+            dbg_rdy_g_d <= i_dbg_rdy_gated;
+            dbg_rdy_a_d <= i_dbg_rdy_all;
+            dbg_irq_d   <= i_dbg_irq;
+            if ( i_dbg_rdy_gated & ~dbg_rdy_g_d) cnt_rdy_gated <= cnt_rdy_gated + 16'd1;
+            if ( i_dbg_rdy_all   & ~dbg_rdy_a_d) cnt_rdy_all   <= cnt_rdy_all   + 16'd1;
+            if (~i_dbg_irq       &  dbg_irq_d)   cnt_irq       <= cnt_irq       + 16'd1;
+        end
+    end
+
+    // Packed 12-byte diagnostic word, byte 0 in the LSB (matches select_byte()).
+    wire [15:0] dbg_rv16 = i_dbg_reader_valid;   // zero-extended if NUM_ADC<16
+    wire [15:0] dbg_rr16 = i_dbg_reader_rdy;
+    wire [7:0]  dbg_byte0 = {psram_valid_int, acq_full_sticky, polling_enabled,
+                             acq_state, i_dbg_state};
+    wire [7:0]  dbg_byte1 = {pf_valid, fifo_full_pre, fifo_empty_pre, 2'b00, num_adc_log2};
+    wire [127:0] diag_word = { 32'h0,
+                               cnt_irq, cnt_rdy_all, cnt_rdy_gated,
+                               dbg_rr16, dbg_rv16,
+                               dbg_byte1, dbg_byte0 };
+
+    // =================================================================
     // WRITE path (fsmc_nwe domain)
     //   STAT_ADDR (0xFF) : write adc_sel (selected live channel)
     //   CTRL_ADDR (0xFE) : acquisition control (bit0: 1=arm, 0=stop)
@@ -634,6 +698,15 @@ module FSMC #(
                         byte_base <= LIVE_BASE;
                         if (burst_start_addr == LIVE_BASE)
                             rd_holding <= {{(ENTRY_BITS-16){1'b0}}, live_val};
+                    end else if (burst_start_addr >= DIAG_BASE &&
+                                 burst_start_addr <  DIAG_BASE + 8'd16) begin
+                        // diagnostic register block (0xE0..0xEB used); loaded on
+                        // ANY byte in the block so single-byte STM32 reads work.
+                        // diag_word (128b) resizes to rd_holding (ENTRY_BITS): zero-
+                        // extended for the real NUM_ADC=16 (256b), truncated only for
+                        // tiny test configs (NUM_ADC<8) where diag isn't used.
+                        byte_base  <= DIAG_BASE;
+                        rd_holding <= diag_word;
                     end else if (burst_start_addr == STAT_ADDR) begin
                         // status byte (0xFF)
                         byte_base  <= STAT_ADDR;

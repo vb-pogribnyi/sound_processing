@@ -8,6 +8,8 @@ module MCP3461Master #(
     input wire i_INTERRUPT,
     input wire [2:0] i_GAIN,         // MCP3461 PGA gain code (CONFIG2[5:3])
     input wire [2:0] i_NUM_ADC_LOG2, // effective channel count: EFF = 1<<this (STM32 @0xD)
+    input wire i_IGNORE_VALID,       // SW2: 1 = drop the address-ack term from o_RDY (diagnostic)
+    input wire i_FREERUN,            // SW3: 1 = read every loop, ignore DRDY/IRQ pacing (diagnostic)
     input wire [NUM_ADC-1:0] i_MISO,
     // output wire sel_interrupt,
     output reg o_MOSI,
@@ -17,7 +19,11 @@ module MCP3461Master #(
     output reg [2:0] o_STATE,
     output wire [16 * NUM_ADC-1:0] o_VALUE,
     output wire o_RDY,
-    output wire o_VALID              // combined address-ack validity of the EFF active ADCs
+    output wire o_VALID,             // combined address-ack validity of the EFF active ADCs
+    // ---- diagnostics (i_CLK50 domain) ----
+    output wire [NUM_ADC-1:0] o_READER_RDY,   // per-channel frame-ready (DR_STATUS fresh)
+    output wire [NUM_ADC-1:0] o_READER_VALID, // per-channel address-ack pass
+    output wire o_RDY_ALL            // all ACTIVE channels ready, validity IGNORED (vs o_RDY)
 );
 reg [7:0] tx_buff [0:16];
 reg [7:0] tx_len = 0;
@@ -78,8 +84,19 @@ always @(*) begin
 end
 // Enforce is_valid: ready only when every ACTIVE channel is data-ready AND passes
 // its address-ack check. o_VALID = all active channels valid (FSMC status bit2).
-assign o_RDY   = &((reader_rdy & reader_valid) | ~active_mask);
+// SW2 override (i_IGNORE_VALID): drop the address-ack term so a channel that
+// fails its validity check can no longer stall the shared sample clock. This
+// isolates whether the validity gate is what throttles the live stream.
+assign o_RDY   = i_IGNORE_VALID
+               ? &( reader_rdy                 | ~active_mask)
+               : &((reader_rdy & reader_valid) | ~active_mask);
 assign o_VALID = &(reader_valid | ~active_mask);
+// Diagnostics: ready across all ACTIVE channels with validity IGNORED (so the
+// health integrator / counters can compare "would-be sample rate" against the
+// gated o_RDY), plus the raw per-channel bitmaps.
+assign o_RDY_ALL      = &(reader_rdy | ~active_mask);
+assign o_READER_RDY   = reader_rdy;
+assign o_READER_VALID = reader_valid;
 genvar gi;
 generate
 for (gi = 0; gi < NUM_ADC ; gi = gi + 1) begin: readers
@@ -176,7 +193,10 @@ always @(posedge i_CLK50) begin
                     if (gain_changed) begin
                         o_STATE <= ALIVE;   // re-apply config when PGA gain switch changes
                     end
-                    else if (data_ready || to_cnt == 0) begin
+                    // SW3 override (i_FREERUN): trigger a read every loop, ignoring
+                    // DRDY/IRQ. If the stream speeds up markedly with this on, the
+                    // ADC IRQ/conversion cadence - not the FPGA - was the bottleneck.
+                    else if (i_FREERUN || data_ready || to_cnt == 0) begin
                         tx_len <= 3;    // status byte + 2 ADC data bytes
                         tx_buff[0] <= cmd_read_val;
                         tx_buff[0][7] <= addr[1];

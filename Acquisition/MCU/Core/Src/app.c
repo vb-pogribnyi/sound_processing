@@ -105,6 +105,13 @@ int is_suspend_signal(uint32_t notification, BaseType_t result) {
 #define ST_IS_VALID     0x04            // status bit2
 #define ST_DATA_READY   0x08            // status bit3
 
+// --- FPGA diagnostic register block (read-only), FSMC bytes 0xE0..0xEB.
+// See the DIAG map in FSMC.v. Read to pin-point where the live-ADC stream
+// stalls: FSM state, per-channel valid/ready bitmaps, and edge counters for
+// gated-rdy / ungated-rdy / raw-IRQ (sample the counters twice a known time
+// apart; the delta is a rate).
+#define DIAG_BASE       0xE0
+
 // --- FPGA/FSMC access serialization -----------------------------------------
 // One logical FPGA read spans several byte accesses that share a single holding
 // register inside the FPGA (only addr 0x0 reloads it; 0x1.. replay it). If the
@@ -127,6 +134,50 @@ static inline uint16_t psram_read_word(void) {
     w |= (uint16_t)(p[2] & 0xF) << 8;
     w |= (uint16_t)(p[3] & 0xF) << 12;
     return w;
+}
+
+// --- Live FPGA diagnostics (watch these in the debugger, or over USB). -------
+// Filled by read_fpga_diag(). They pin-point where the live-ADC stream stalls:
+//   dbg_state        : MCP3461Master FSM 0=FRESH 1=ALIVE 2=CONFIGURING 3=READING 4=ERROR
+//   dbg_reader_valid : bit c = channel c passed its address-ack (1 = healthy)
+//   dbg_reader_rdy   : bit c = channel c produced a fresh frame
+//   dbg_cnt_rdy_gated: o_RDY edges     -> ACTUAL rate feeding the FIFO
+//   dbg_cnt_rdy_all  : o_RDY_ALL edges -> rate if validity were ignored
+//   dbg_cnt_irq      : raw MCP nIRQ edges -> ADC conversion rate
+// Interpreting the counters (sample twice, take the delta over a known time):
+//   cnt_rdy_all >> cnt_rdy_gated  -> the validity gate is throttling (try SW2)
+//   all three ~0                  -> ADC/master not converting/reading
+//                                    (check dbg_state==READING; try SW3 free-run)
+//   cnt_irq low                   -> ADC conversion rate itself is low (OSR/MCLK)
+volatile uint8_t  dbg_state, dbg_acq_state, dbg_polling, dbg_acq_full, dbg_psram_valid;
+volatile uint8_t  dbg_num_adc_log2, dbg_fifo_empty, dbg_fifo_full, dbg_data_ready;
+volatile uint16_t dbg_reader_valid, dbg_reader_rdy;
+volatile uint16_t dbg_cnt_rdy_gated, dbg_cnt_rdy_all, dbg_cnt_irq;
+
+// Snapshot the FPGA diagnostic block (bytes 0xE0..0xEB). Read-only in the FPGA,
+// but still bracketed vs the TIM3 ISR because every FSMC read shares the FPGA's
+// byte holding register (an interleaved 0xFD/0xFE read would corrupt the block).
+void read_fpga_diag(void) {
+    volatile uint8_t *p = (volatile uint8_t *)PSRAM_BASE_ADDR;
+    uint8_t b0, b1;
+    FPGA_LOCK();
+    b0                = p[DIAG_BASE + 0x0];
+    b1                = p[DIAG_BASE + 0x1];
+    dbg_reader_valid  = (uint16_t)p[DIAG_BASE + 0x2] | ((uint16_t)p[DIAG_BASE + 0x3] << 8);
+    dbg_reader_rdy    = (uint16_t)p[DIAG_BASE + 0x4] | ((uint16_t)p[DIAG_BASE + 0x5] << 8);
+    dbg_cnt_rdy_gated = (uint16_t)p[DIAG_BASE + 0x6] | ((uint16_t)p[DIAG_BASE + 0x7] << 8);
+    dbg_cnt_rdy_all   = (uint16_t)p[DIAG_BASE + 0x8] | ((uint16_t)p[DIAG_BASE + 0x9] << 8);
+    dbg_cnt_irq       = (uint16_t)p[DIAG_BASE + 0xA] | ((uint16_t)p[DIAG_BASE + 0xB] << 8);
+    FPGA_UNLOCK();
+    dbg_state       =  b0        & 0x7;
+    dbg_acq_state   = (b0 >> 3)   & 0x3;
+    dbg_polling     = (b0 >> 5)   & 0x1;
+    dbg_acq_full    = (b0 >> 6)   & 0x1;
+    dbg_psram_valid = (b0 >> 7)   & 0x1;
+    dbg_num_adc_log2 =  b1        & 0x7;
+    dbg_fifo_empty  = (b1 >> 5)   & 0x1;
+    dbg_fifo_full   = (b1 >> 6)   & 0x1;
+    dbg_data_ready  = (b1 >> 7)   & 0x1;
 }
 
 void task_retr_main_func(void* pvParameters) {
@@ -305,6 +356,22 @@ void capture_periodic() {
 			pbuff_idx = 0;
 	} else {
 		pbuff_idx = 0;
+	}
+
+	// Refresh the FPGA health diagnostics at ~100 Hz (TIM3 runs ~16 kHz). Kept
+	// out of the lock above - read_fpga_diag() brackets its own FPGA access.
+	static uint16_t diag_prescale = 0;
+	if (++diag_prescale >= 160) {
+		diag_prescale = 0;
+		read_fpga_diag();
+		if (SEGGER_SYSVIEW_IsStarted()) {
+			SEGGER_SYSVIEW_PrintfTarget(
+				"ADCdiag n=%u st=%u eff=%u val=%x rdy=%x g=%u a=%u irq=%u",
+				(unsigned)sound_buff_idx,   (unsigned)dbg_state,
+				(unsigned)dbg_num_adc_log2, (unsigned)dbg_reader_valid,
+				(unsigned)dbg_reader_rdy,   (unsigned)dbg_cnt_rdy_gated,
+				(unsigned)dbg_cnt_rdy_all,  (unsigned)dbg_cnt_irq);
+		}
 	}
 }
 
