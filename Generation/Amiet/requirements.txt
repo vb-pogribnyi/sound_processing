@@ -1,0 +1,4 @@
+# Runtime dependencies for airfoil_noise.py
+# (The vendored amiet_tools package itself only needs numpy + scipy.)
+numpy>=1.20.3
+scipy>=1.6.3

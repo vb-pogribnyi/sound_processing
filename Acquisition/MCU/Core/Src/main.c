@@ -104,7 +104,7 @@ void capture_periodic();
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  for (int i = 0; i < 1000000; i++); // Hold the horses...
+  for (int i = 0; i < 100000; i++); // Don't push the horses...
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/

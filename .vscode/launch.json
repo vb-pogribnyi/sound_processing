@@ -15,6 +15,22 @@
 
 
         {
+            "name": "Amiet Airfoil Noise",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/Generation/Amiet/airfoil_noise.py",
+            "args": [
+                "--num-samples", "524288",
+                "--chord", "0.075",
+                "--span", "0.015",
+                "--export-wav",
+                "--wav-duration", "10",
+                "--seed", "0"
+            ],
+            "cwd": "${workspaceFolder}/Generation/Amiet",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "RunExperiments",
             "type": "debugpy",
             "request": "launch",

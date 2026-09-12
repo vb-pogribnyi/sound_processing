@@ -1418,7 +1418,7 @@ static HAL_StatusTypeDef USB_CoreReset(USB_OTG_GlobalTypeDef *USBx)
     }
   } while ((USBx->GRSTCTL & USB_OTG_GRSTCTL_AHBIDL) == 0U);
 
-  count = 10U;
+  count = 1000U;
 
   /* few cycles before setting core reset */
   while (count > 0U)
