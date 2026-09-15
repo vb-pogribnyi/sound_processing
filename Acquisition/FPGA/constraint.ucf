@@ -1,0 +1,103 @@
+NET "*" IOSTANDARD = LVCMOS33;
+
+NET "i_CLK" LOC = "P55";
+NET "o_LED1N" LOC = "P44";
+NET "o_LED2N" LOC = "P43";
+NET "o_LED3N" LOC = "P41";
+NET "o_LED4N" LOC = "P40";
+NET "o_LED1P" LOC = "P45";
+NET "o_LED2P" LOC = "P46";
+
+#NET "i_STATUS" LOC = "P117";
+
+NET "o_FSMC_AD[0]" LOC = "P126";
+NET "o_FSMC_AD[1]" LOC = "P124";
+NET "o_FSMC_AD[2]" LOC = "P114";
+NET "o_FSMC_AD[3]" LOC = "P112";
+NET "o_FSMC_AD[4]" LOC = "P142";
+NET "o_FSMC_AD[5]" LOC = "P141";
+NET "o_FSMC_AD[6]" LOC = "P140";
+NET "o_FSMC_AD[7]" LOC = "P139";
+NET "o_FSMC_NE" LOC = "P127";
+NET "o_FSMC_NOE" LOC = "P94";
+NET "o_FSMC_NWE" LOC = "P123";
+NET "o_FSMC_NADV" LOC = "P111";
+NET "o_FSMC_NADV" CLOCK_DEDICATED_ROUTE = FALSE;
+NET "o_FSMC_CLK" LOC = "P95";
+NET "o_FSMC_NWAIT" LOC = "P121";
+
+NET "o_PSRAM_CE" LOC = "P58";
+NET "o_PSRAM_CLK" LOC = "P61";
+NET "PSRAM_SIO[0]" LOC = "P62";
+NET "PSRAM_SIO[1]" LOC = "P57";
+NET "PSRAM_SIO[2]" LOC = "P56";
+NET "PSRAM_SIO[3]" LOC = "P59";
+
+NET "o_DBG14" LOC = "P79";
+
+NET "i_SW5" LOC = "P115";
+NET "i_SW4" LOC = "P116";
+NET "i_SW3" LOC = "P92";
+NET "i_SW2" LOC = "P88";
+NET "i_SW1" LOC = "P87";
+
+
+NET "o_MCP_nCS_1" LOC = "P47";
+NET "o_MCP_MCLK" LOC = "P48";
+NET "o_MCP_SCK" LOC = "P50";
+NET "o_MCP_SDI" LOC = "P51";
+NET "i_MCP_SDO1" LOC = "P22";
+NET "i_MCP_SDO2" LOC = "P17";
+NET "i_MCP_SDO3" LOC = "P16";
+NET "i_MCP_SDO4" LOC = "P24";
+NET "i_MCP_SDO5" LOC = "P27";
+NET "i_MCP_SDO6" LOC = "P30";
+NET "i_MCP_SDO7" LOC = "P35";
+NET "i_MCP_SDO8" LOC = "P34";
+
+#NET "i_MCP_SDO8" LOC = "P22";
+#NET "i_MCP_SDO1" LOC = "P34";
+#NET "i_MCP_SDO2" LOC = "P33";
+#NET "i_MCP_SDO16" LOC = "P17";
+
+NET "i_MCP_SDO9" LOC = "P21";
+NET "i_MCP_SDO10" LOC = "P15";
+NET "i_MCP_SDO11" LOC = "P23";
+NET "i_MCP_SDO12" LOC = "P26";
+NET "i_MCP_SDO13" LOC = "P29";
+NET "i_MCP_SDO14" LOC = "P32";
+NET "i_MCP_SDO15" LOC = "P66";
+NET "i_MCP_SDO16" LOC = "P33";
+
+NET "o_MCP_nCS_2" LOC = "P143";
+NET "i_MCP_SDO17" LOC = "P120";  # 1
+NET "i_MCP_SDO18" LOC = "P7";  # 2
+NET "i_MCP_SDO19" LOC = "P9";  # 3
+NET "i_MCP_SDO20" LOC = "P11";  # 4
+NET "i_MCP_SDO21" LOC = "P12";  # 5
+NET "i_MCP_SDO22" LOC = "P5";  # 6
+NET "i_MCP_SDO23" LOC = "P74";  # 7
+NET "i_MCP_SDO24" LOC = "P75";  # 8
+NET "i_MCP_SDO25" LOC = "P2";  # 9
+NET "i_MCP_SDO26" LOC = "P8";  # 10
+NET "i_MCP_SDO27" LOC = "P10";  # 11
+NET "i_MCP_SDO28" LOC = "P14";  # 12
+NET "i_MCP_SDO29" LOC = "P6";  # 13
+NET "i_MCP_SDO30" LOC = "P1";  # 14
+NET "i_MCP_SDO31" LOC = "P67";  # 15
+NET "i_MCP_SDO32" LOC = "P119";  # 16
+# --- OV5640 camera  ---
+#NET "i_CAM_D0"    LOC = "P82";
+#NET "i_CAM_D1"    LOC = "P80";
+#NET "i_CAM_D2"    LOC = "P81";
+NET "i_CAM_D3"    LOC = "P78";
+#NET "i_CAM_D4"    LOC = "P83";
+#NET "i_CAM_D5"    LOC = "P93";
+NET "i_CAM_D6"    LOC = "P97";
+NET "i_CAM_D7"    LOC = "P99";
+NET "i_CAM_PCLK"  LOC = "P85";
+NET "o_CAM_XCLK"  LOC = "P98";
+NET "i_CAM_HREF"  LOC = "P101";
+NET "i_CAM_VSYNC" LOC = "P84";
+NET "o_CAM_SIOC"  LOC = "P102";
+NET "o_CAM_SIOD"  LOC = "P100";

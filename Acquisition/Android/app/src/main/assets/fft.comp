@@ -1,0 +1,42 @@
+#version 320 es
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input {
+    vec2 inData[];
+};
+layout(std430, binding = 1) writeonly buffer Output {
+    vec2 outData[];
+};
+
+uniform int uStage;
+uniform int uSize;
+const float PI = 3.14159265359;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    int id = int(gid);
+    int m = 1 << uStage;
+    int step = m << 1;
+    int group = id / step;
+    int pair = id % step;
+    if (pair >= m) return;
+
+    int i0 = group * step + pair;
+    int i1 = i0 + m;
+
+    vec2 a = inData[i0];
+    vec2 b = inData[i1];
+
+    float angle = -2.0 * PI * float(pair) / float(step);
+    vec2 w = vec2(cos(angle), sin(angle));
+    vec2 t = vec2(
+        b.x * w.x - b.y * w.y,
+        b.x * w.y + b.y * w.x
+    );
+    outData[i0] = a + t;
+    outData[i1] = a - t;
+//    if (id >= values.length()) {
+//        return;
+//    }
+//    values[id] *= values[id];
+}

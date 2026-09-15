@@ -1,0 +1,28 @@
+#version 320 es
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input {
+    float inData[];
+};
+layout(std430, binding = 1) writeonly buffer Output {
+    vec2 outData[];
+};
+
+uint reverseBits(uint x, uint bits) {
+    uint result = 0u;
+    for (uint i = 0u; i < bits; i++) {
+        result = (result << 1u) | (x & 1u);
+        x >>= 1u;
+    }
+
+    return result;
+}
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    int id = int(gid);
+    uint logN = uint(12);
+    uint reversed = reverseBits(gid, logN);
+    outData[reversed].x = inData[id];
+    outData[reversed].y = 0.0f;
+}

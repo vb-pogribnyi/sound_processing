@@ -12,6 +12,16 @@
 *.wav
 *.pth
 *.bak
+*.vcd
+*.out
+*.gtkw
+*.lck
+*.vvp
+*.gbr
+*.drl
+*.kicad_sch-bak
+fp-info-cache
+\#auto_saved_files\#
 ./processing
 outputs
 slices
@@ -20,3 +30,5 @@ kwave/bin/*
 Generation/KWave/kwave/bin/linux/kspaceFirstOrder-CUDA
 /app/output
 mlruns/*
+Acquisition/KiCad/*
+*.gbrjob

@@ -1,0 +1,113 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.h
+  * @brief          : Header for main.c file.
+  *                   This file contains the common defines of the application.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2025 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __MAIN_H
+#define __MAIN_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Includes ------------------------------------------------------------------*/
+#include "stm32f4xx_hal.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+//#include "tasks.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
+/* USER CODE END Includes */
+
+/* Exported types ------------------------------------------------------------*/
+/* USER CODE BEGIN ET */
+
+
+typedef enum SRetrieval {
+	SLEEPING = 0,
+    READY,
+	REQUESTED,
+	CAPTURED,
+	SENT
+} SRetrieval;
+
+typedef enum SeggerStatus {
+	SEGGER_SLEEPING = 0,
+	SEGGER_STARTED,
+	SEGGER_REQUESTED,
+	SEGGER_FAIL,
+	SEGGER_ENDED,
+	SEGGER_SENT
+} SeggerStatus;
+
+typedef enum PeriodicStatus {
+	PERIODIC_SLEEPING = 0,
+	PERIODIC_STARTED,
+	PERIODIC_REQUESTED,
+	PERIODIC_FAIL,
+	PERIODIC_ENDED,
+	PERIODIC_SENT
+} PeriodicStatus;
+/* USER CODE END ET */
+
+/* Exported constants --------------------------------------------------------*/
+/* USER CODE BEGIN EC */
+
+/* USER CODE END EC */
+
+/* Exported macro ------------------------------------------------------------*/
+/* USER CODE BEGIN EM */
+
+/* USER CODE END EM */
+
+/* Exported functions prototypes ---------------------------------------------*/
+void Error_Handler(void);
+
+/* USER CODE BEGIN EFP */
+
+/* USER CODE END EFP */
+
+/* Private defines -----------------------------------------------------------*/
+#define LED2_Pin GPIO_PIN_2
+#define LED2_GPIO_Port GPIOE
+#define USB_RST_Pin GPIO_PIN_1
+#define USB_RST_GPIO_Port GPIOC
+#define FPGA_Done_Pin GPIO_PIN_9
+#define FPGA_Done_GPIO_Port GPIOA
+#define FPGA_Status_Pin GPIO_PIN_10
+#define FPGA_Status_GPIO_Port GPIOA
+#define LED_R_Pin GPIO_PIN_9
+#define LED_R_GPIO_Port GPIOB
+#define LED_G_Pin GPIO_PIN_0
+#define LED_G_GPIO_Port GPIOE
+#define LED_Pin GPIO_PIN_1
+#define LED_GPIO_Port GPIOE
+
+/* USER CODE BEGIN Private defines */
+
+//#define SOUND_ITEMS (4*512*16)
+#define SOUND_ITEMS (4*1024*4)
+/* USER CODE END Private defines */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __MAIN_H */

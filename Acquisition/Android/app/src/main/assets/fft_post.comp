@@ -1,0 +1,15 @@
+#version 320 es
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Input {
+    vec2 inData[];
+};
+layout(std430, binding = 1) writeonly buffer Output {
+    float outData[];
+};
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    int id = int(gid);
+    outData[id] = length(inData[id]) / 1000.0f;
+}
