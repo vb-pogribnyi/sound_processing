@@ -6,14 +6,13 @@ from Mesh import Mesh
 from PlaneReader import PlaneReader
 from SourceDrawer import SourceDrawer
 
-profile = '01_sphere'
-profiles = ['02_cylinder']
+profiles = ['03_diff_airfoil']
 
 dt = 1e-7
 rpm = 3500
 rps = rpm / 60      # revolutions per second
 nblades=1
-nbladess = [1, 2, 3]
+nbladess = [2, 3]
 ndivs = 150
 mesh_divs = [0.008]
 if rps == 0:
@@ -33,7 +32,7 @@ for profile in profiles:
             # dz of 0.000625 m gives 8 steps for the thickness of 0.005 m
             ncells_x = round(0.3 / mesh_div)
             ncells_y = round(0.3 / mesh_div)
-            ncells_z = round(0.03 / mesh_div)
+            ncells_z = round(0.04 / mesh_div)
             mesh = Mesh(nx=ncells_x, ny=ncells_y, nz=ncells_z, nt=nt,
                         dx=mesh_div, dy=mesh_div, dz=mesh_div, dt=dt)
             meta = {
@@ -47,7 +46,7 @@ for profile in profiles:
                 'nt': mesh.mesh.shape[3]
             }
             os.makedirs('input_mesh', exist_ok=True)
-            mesh_path = os.path.join('input_mesh', profile, str(dt), str(nblades), str(mesh_div))
+            mesh_path = os.path.join('/experiments/input_mesh', profile, str(dt), str(nblades), str(mesh_div))
             os.makedirs(mesh_path, exist_ok=True)
             json.dump(meta, open(f'{mesh_path}/meta.json', 'w'), indent=4)
             source_drawer = SourceDrawer(
@@ -56,7 +55,7 @@ for profile in profiles:
                 nblades=nblades,
                 blade_length=0.1,       # 10 cm
                 blade_width=0.035,      # 35 mm
-                blade_thickness=0.015   # 15 mm - whole plane; signal itself will be thinner
+                blade_thickness=0.035   # 35 mm - whole plane; signal itself will be thinner
             )
             angle = 0
             for mesh_idx in tqdm(range(ndivs), position=0):

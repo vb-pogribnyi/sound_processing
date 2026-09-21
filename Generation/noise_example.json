@@ -1,0 +1,16 @@
+{
+  "n_span": 8,
+  "n_chord": 12,
+  "span": 0.1,
+  "flow_speed": [24, 30, 36, 42, 48, 54, 60, 66],
+  "chord": [0.015, 0.017, 0.018, 0.018, 0.017, 0.015, 0.0125, 0.01],
+  "turbulence_intensity": 0.025,
+  "angle_of_attack": [25, 25, 22, 18, 16, 12, 9, 7],
+  "length_scale": 0.007,
+  "tip_shape": "rounded",
+  "tip_loading_ratio": 1.0,
+  "sample_rate": 16000,
+  "f_min": 80,
+  "f_max": 7000,
+  "seed": 42
+}

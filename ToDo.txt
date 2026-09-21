@@ -32,3 +32,6 @@ For MMAUD testing - add option to test all microphones rotations
 Figure out why TAME performs worse than reported in papers
     - Try different windows with unchanged collected
     - Create issue on Github
+
+
+In Generation/KWave/src/run_experiments.py function load_source() returns a mesh with a signal applied. mesh.real contains values from -255 to 255, and np.sin(2 * np.pi * sf * t) is written into result scaled by the mesh value. This function aims to simulate noise create by a propeller. The mesh contains a map where a propeller would be (it's a 4d mesh, xyzt) with positive values above the blade and negative below the blade. The Generation/Amiet module contains code that uses amiet theory to create a filter that a propeller blade would generate in far field. Your task is to modify the load_source() in such a way that it generates realistic leading/trailing edge noise using this Amiet module. Do NOT run the run_experiments file - this is a heavy module and the mesh itself is still in progress. You are allowed to run Amiet module and modify the load_source() so that I could review and run.

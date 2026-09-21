@@ -19,6 +19,8 @@
 *.vvp
 *.gbr
 *.drl
+*.kra
+*.kra~
 *.kicad_sch-bak
 fp-info-cache
 \#auto_saved_files\#

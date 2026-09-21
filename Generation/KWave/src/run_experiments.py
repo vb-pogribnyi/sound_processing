@@ -30,7 +30,7 @@ from multiprocessing.shared_memory import SharedMemory
 
 
 Nt = 1024*8
-mesh_basedir = '/app/input_mesh'
+mesh_basedir = '/experiments/input_mesh'
 def worker_gif(task_queue, logger):
     while True:
         dirnames = set()
@@ -100,12 +100,15 @@ def save_slice_img(slice, dirname, out_idx, gif_task_queue):
 
 
 def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger):
-    src_files = {}
-    mesh_meta = json.load(open(os.path.join(mesh_basedir, source_cfg['type'], 'meta.json')))
+    # Only source generation needs the Amiet model.
+    generation_dir = str(Path(__file__).resolve().parents[2])
+    if generation_dir not in sys.path:
+        sys.path.insert(0, generation_dir)
+    from Amiet.source_noise import sample_source_noise
+
+    with open(os.path.join(mesh_basedir, source_cfg['type'], 'meta.json')) as meta_file:
+        mesh_meta = json.load(meta_file)
     dt = float(mesh_meta['dt'])
-    for f in os.scandir(os.path.join(mesh_basedir, source_cfg['type'])):
-        if f.name.split('.')[-1] == 'npz':
-            src_files[f.name.split('.')[0]] = f.path
 
     mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
@@ -122,18 +125,14 @@ def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, lo
         Nt
     ], dtype=np.float32)
 
-    # Generate a sine signal, scale with the values being read, write as a source
-    sf = source_cfg['freq']
-    duration = Nt * dt
-    tstart = time_start * dt
-    t = np.linspace(tstart, tstart + duration, mesh.shape[-1]) + source_cfg['phase']
-    y = source_cfg['amplitude'] * np.sin(2 * np.pi * sf * t) + 1e-7
-    result = np.nan_to_num(mesh.real)
-    mesh_descr = mesh.imag.astype(int)
-
-    blade_idx = mesh_descr % 10
-    result[blade_idx != 0] = 0
-    result[result < 0] = 0
+    # Preserve both sides of the dipole-like map and all blades. Imaginary
+    # labels are linearly interpolated by MeshReader, so cannot reliably be
+    # decoded as categorical blade IDs. Use one coherent excitation for now.
+    # Amplitude is nominal RMS pressure at |mesh.real| == 255 (changed from
+    # sinusoid peak times unnormalized image intensity).
+    y = source_cfg['amplitude'] * sample_source_noise(source_cfg, dt, time_start, Nt)
+    result = np.nan_to_num(mesh.real, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
+    result /= 255.0
     result *= y[None, None, None, :]
     source_p[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = result
 

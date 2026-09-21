@@ -12,7 +12,7 @@ class PlaneReader:
             profile_path = os.path.join(planes_source, str(profile_idx).zfill(3) + '.png')
             if not os.path.exists(profile_path):
                 break
-            self.profiles.append(255 - cv.imread(profile_path, cv.IMREAD_GRAYSCALE))
+            self.profiles.append(255 - cv.imread(profile_path, cv.IMREAD_COLOR))
             profile_idx += 1
         self.nprofiles = profile_idx - 1
         print(f"PlaneReader loaded {self.nprofiles} profiles.")
@@ -30,9 +30,10 @@ class PlaneReader:
         profile_row_end = int((y + dy) * self.profiles[profile_idx1].shape[0])
         profile_col_start = int(t * self.profiles[profile_idx1].shape[1])
         profile_col_end = int((t + dt) * self.profiles[profile_idx1].shape[1])
-        profile1_value = np.mean(self.profiles[profile_idx1][profile_row_start:profile_row_end+1, profile_col_start:profile_col_end+1])
-        profile2_value = np.mean(self.profiles[profile_idx2][profile_row_start:profile_row_end+1, profile_col_start:profile_col_end+1])
+        profile1_value = np.mean(np.mean(self.profiles[profile_idx1][profile_row_start:profile_row_end+1, profile_col_start:profile_col_end+1], axis=0), axis=0)
+        profile2_value = np.mean(np.mean(self.profiles[profile_idx2][profile_row_start:profile_row_end+1, profile_col_start:profile_col_end+1], axis=0), axis=0)
         result = profile_alpha * profile2_value + (1 - profile_alpha) * profile1_value
+        result = result[0] - result[2]
 
         if debug:
             img1 = self.profiles[profile_idx1]
