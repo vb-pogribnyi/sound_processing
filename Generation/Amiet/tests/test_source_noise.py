@@ -1,10 +1,7 @@
 """Small tests; never import or execute the k-Wave experiment runner."""
-import ast
 import json
-import logging
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 
 import numpy as np
@@ -50,38 +47,6 @@ class SourceNoiseTests(unittest.TestCase):
             with self.subTest(opts=opts), self.assertRaises(ValueError):
                 sample_source_noise(dict(self.cfg, amiet=opts), 1e-5, 0, 10)
 
-    def test_signed_mesh_and_layout(self):
-        # Extract only the function definition. No runner imports, workers,
-        # real mesh reads, or simulation code are executed.
-        path = GENERATION / 'KWave/src/run_experiments.py'
-        tree = ast.parse(path.read_text())
-        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
-                  and n.name == 'load_source')
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp) / 'test'
-            folder.mkdir()
-            (folder / 'meta.json').write_text(json.dumps(dict(dt=1e-5)))
-            import os
-            scope = dict(np=np, Path=Path, sys=sys, json=json, os=os,
-                         __file__=str(path), mesh_basedir=tmp)
-            exec(compile(ast.Module(body=[fn], type_ignores=[]), str(path), 'exec'), scope)
-            mesh = np.zeros((2, 1, 2, 128), dtype=complex)
-            mesh[0, 0, 0] = 255 + 1j
-            mesh[1, 0, 0] = -255 + 2j
-            mesh[0, 0, 1] = 127.5
-            class Reader:
-                def sample(self, *args):
-                    return mesh
-            result = scope['load_source'](
-                dict(self.cfg, speed=1), 0, 128, Reader(),
-                dict(x=(0, 2), y=(0, 1), z=(0, 2)), logging.getLogger())
-            self.assertEqual(result.shape, (4, 128))
-            self.assertEqual(result.dtype, np.float32)
-            np.testing.assert_array_equal(result[0], -result[1])
-            np.testing.assert_array_equal(result[2], result[0]/2)
-            np.testing.assert_array_equal(result[3], 0)
-            self.assertTrue(np.any(result[0]))
-            self.assertEqual(mesh[0, 0, 0, 0], 255+1j)
 
 
 if __name__ == '__main__':

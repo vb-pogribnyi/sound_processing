@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 from PIL import Image
-from scipy.interpolate import interp1d
+from functools import lru_cache
 
 class MeshReader:
     '''
@@ -10,7 +10,8 @@ class MeshReader:
     '''
     def __init__(self, path):
         self.mesh_path = path
-        self.meta = json.load(open(os.path.join(path, 'meta.json')))
+        with open(os.path.join(path, 'meta.json')) as meta_file:
+            self.meta = json.load(meta_file)
         self.files = []
         for f in os.scandir(path):
             if f.name.split('.')[-1] == 'npz':
@@ -19,64 +20,79 @@ class MeshReader:
         assert len(self.files) > 0, "No input files found!"
 
     
-    def sample(self, speed, timestep_start, timestep_end, logger=None):
-        speed = 1 / speed   # So that speed of, e.g. 1.1 is faster, 0.9 is slower
-        # Rescale to the input timesteps
-        in_timestep_start = timestep_start / speed
-        in_timestep_end = timestep_end / speed
-        steps_overall = len(self.files) * self.meta['nt']
-        load_step_start = int(in_timestep_start) % steps_overall
-        load_step_end = int(in_timestep_end + 1) % steps_overall
-        n_full_loops = int((in_timestep_end + 1 - in_timestep_start) / steps_overall)
-        file_start = int(load_step_start / self.meta['nt'])
-        file_end = int(load_step_end / self.meta['nt'])
-        assert file_start >= 0 and file_start < len(self.files), "Wrong file index"
-        assert file_end >= 0 and file_end < len(self.files), "Wrong file index"
+    def sample(self, speed, timestep_start, timestep_end, logger=None, transform=None):
+        """Sample a periodic mesh without interpolating its packed labels.
 
-        #Load the involved files
-        fidx = file_start
-        data = []
-        n_loops_passed = 0
-        while True:
-            if logger is None:
-                print('Loading file', self.files[fidx])
+        transform(frame_mesh, output_timesteps), when supplied, is evaluated
+        separately on the two intact endpoint meshes, at the SAME output
+        times. Only its real pressures are then interpolated. This preserves
+        different blade/coordinate contributions when a voxel changes owner.
+        Without a transform, weights are linear and labels are nearest-frame.
+        """
+        if not np.isfinite(speed) or speed <= 0:
+            raise ValueError('Mesh playback speed must be finite and positive')
+        if (int(timestep_start) != timestep_start or int(timestep_end) != timestep_end
+                or timestep_start < 0 or timestep_end <= timestep_start):
+            raise ValueError('Expected nonempty, nonnegative integer timestep interval')
+        nt = int(self.meta['nt'])
+        if nt < 1:
+            raise ValueError('Mesh nt must be positive')
+        period = len(self.files)*nt
+
+        @lru_cache(maxsize=2)
+        def read_file(index):
+            if logger:
+                logger.info('Loading mesh file %s', self.files[index])
+            with np.load(self.files[index], allow_pickle=False) as archive:
+                data = archive['arr_0']
+            if data.ndim != 4 or data.shape[-1] != nt:
+                raise ValueError('Mesh frame dimensions do not match metadata nt')
+            return data
+
+        first = read_file(int(np.floor(timestep_start*speed)) % period // nt)
+        spatial_shape, mesh_dtype = first.shape[:3], first.dtype
+        count = int(timestep_end-timestep_start)
+        result = np.empty(spatial_shape+(count,), dtype=np.float32 if transform else mesh_dtype)
+        del first
+
+        def frames(indices):
+            out = np.empty(spatial_shape+(len(indices),), dtype=mesh_dtype)
+            file_indices = indices//nt
+            for file_index in np.unique(file_indices):
+                selected = file_indices == file_index
+                data = read_file(int(file_index))
+                if data.shape[:3] != spatial_shape:
+                    raise ValueError('Mesh files have inconsistent spatial dimensions')
+                out[..., selected] = data[..., indices[selected] % nt]
+            return out
+
+        # Bound temporary allocations independently of simulation chunk length.
+        for offset in range(0, count, 64):
+            steps = np.arange(int(timestep_start)+offset,
+                              min(int(timestep_start)+offset+64, int(timestep_end)))
+            position = steps.astype(np.float64)*speed
+            lower_index = np.floor(position).astype(np.int64)
+            alpha = position-lower_index
+            lower = frames(lower_index % period)
+            if transform:
+                lower = transform(lower, steps)
+            if np.any(alpha):
+                upper = frames((lower_index+1) % period)
+                if transform:
+                    upper = transform(upper, steps)
+                    block = lower*(1-alpha)+upper*alpha
+                else:
+                    # Packed labels are categorical, even though stored in a
+                    # complex array. Blending the encoded number is invalid.
+                    block = lower.copy()
+                    block.real = lower.real*(1-alpha)+upper.real*alpha
+                    block.imag = np.where(alpha < .5, lower.imag, upper.imag)
             else:
-                logger.info(f'Loading file {self.files[fidx]}')
-            data.append(np.load(self.files[fidx])['arr_0'])
-            if fidx == file_end:
-                if n_loops_passed >= n_full_loops:
-                    break
-            fidx += 1
-            if fidx == len(self.files):
-                fidx = 0
-            if fidx == file_start:
-                n_loops_passed += 1
-        data = np.concatenate(data, axis=-1)
-
-        # Interpolate
-        old_time_start = self.meta['nt'] * file_start
-        old_time_end = self.meta['nt'] * (file_end + 1 + n_full_loops * len(self.files))
-        if file_end < file_start:
-            old_time_end += self.meta['nt'] * len(self.files)
-        assert old_time_end - old_time_start == data.shape[-1], "Wrong time scaling"
-        if old_time_end < old_time_start:
-            old_time_end += steps_overall
-        old_times = np.arange(old_time_start, old_time_end, 1) * speed
-        new_times = np.arange(timestep_start, timestep_end, 1)
-        while np.max(old_times) < np.max(new_times):
-            old_times += steps_overall * speed
-        old_times = np.round(old_times).astype(int)
-        assert np.min(old_times) <= np.min(new_times), "Wrong time scaling"
-        assert np.max(old_times) >= np.max(new_times), "Wrong time scaling"
-        interp = interp1d(
-            old_times, data.reshape(-1, data.shape[-1]),
-            axis=1,           # interpolate along the time axis
-            kind='linear',    # 'linear', 'cubic', 'nearest', 'quadratic', ...
-            assume_sorted=True,
-        )
-        resampled = interp(new_times)
-
-        return resampled.reshape(data.shape[0], data.shape[1], data.shape[2], -1)
+                block = lower
+            if block.shape != spatial_shape+(len(steps),):
+                raise ValueError('Mesh transform must preserve the frame shape')
+            result[..., offset:offset+len(steps)] = block
+        return result
 
 
 if __name__ == '__main__':

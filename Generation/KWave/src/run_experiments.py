@@ -100,17 +100,17 @@ def save_slice_img(slice, dirname, out_idx, gif_task_queue):
 
 
 def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger):
-    # Only source generation needs the Amiet model.
-    generation_dir = str(Path(__file__).resolve().parents[2])
-    if generation_dir not in sys.path:
-        sys.path.insert(0, generation_dir)
-    from Amiet.source_noise import sample_source_noise
+    # Import source synthesis lazily, without changing the solver startup.
+    repository_dir = str(Path(__file__).resolve().parents[3])
+    if repository_dir not in sys.path:
+        sys.path.insert(0, repository_dir)
+    from Generation.kwave_noise import MeshNoise
 
-    with open(os.path.join(mesh_basedir, source_cfg['type'], 'meta.json')) as meta_file:
-        mesh_meta = json.load(meta_file)
-    dt = float(mesh_meta['dt'])
-
-    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger)
+    mesh_meta = mesh_reader.meta
+    pressure_mapper = MeshNoise(source_cfg, mesh_meta, logger)
+    # Apply noise before temporal interpolation: packed labels must stay intact.
+    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger,
+                              transform=pressure_mapper)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
     mesh_xend = mesh_xstart + mesh.shape[0]
     mesh_ystart = int(source_cfg['y'] - source_bounds['y'][0])
@@ -125,16 +125,11 @@ def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, lo
         Nt
     ], dtype=np.float32)
 
-    # Preserve both sides of the dipole-like map and all blades. Imaginary
-    # labels are linearly interpolated by MeshReader, so cannot reliably be
-    # decoded as categorical blade IDs. Use one coherent excitation for now.
-    # Amplitude is nominal RMS pressure at |mesh.real| == 255 (changed from
-    # sinusoid peak times unnormalized image intensity).
-    y = source_cfg['amplitude'] * sample_source_noise(source_cfg, dt, time_start, Nt)
-    result = np.nan_to_num(mesh.real, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
-    result /= 255.0
-    result *= y[None, None, None, :]
-    source_p[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = result
+    if (mesh_xstart < 0 or mesh_ystart < 0 or mesh_zstart < 0
+            or mesh_xend > source_p.shape[0] or mesh_yend > source_p.shape[1]
+            or mesh_zend > source_p.shape[2]):
+        raise ValueError('Source mesh lies outside the configured source bounds')
+    source_p[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = mesh
 
     return np.transpose(source_p, [2, 1, 0, 3]).reshape(-1, Nt)
 

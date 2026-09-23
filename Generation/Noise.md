@@ -218,41 +218,109 @@ are cell centers: span increases root-to-tip, chord fraction increases LE-to-TE.
 Physical chord coordinates in `x_m` are measured from each strip's leading edge.
 Pressure is an unsteady jump, not static lift or an absolute pressure.
 
-## Future mapping to the signed k-Wave mesh
+## Mapping to the signed k-Wave mesh
 
-The generated array is intentionally independent of the unfinished 4-D mesh.
-A future mapper needs blade identity and blade-local span/chord coordinates,
-then spatial/temporal interpolation of this field while preserving its phase.
-Packed categorical IDs must not be linearly interpolated as numbers; the
-current MeshReader does that to its imaginary channel. Continuous coordinates
-and discrete blade IDs need separate treatment.
+`load_source()` now uses `Generation/kwave_noise.py` and `BladeNoise` instead
+of the earlier `Amiet/source_noise.py` far-field-shaped prototype. The mapper
+has no solver dependencies. Full experiments still start only from the runner.
 
-A symmetric surface convention is `upper=+jump/2`, `lower=-jump/2`. If the real
-mesh is a normalized signed surface mask, the corresponding *pressure-like*
-field is `(mesh.real/255) * jump_at_local_coordinates / 2`. This expresses the
-sign convention only; it is **not** a calibrated formula for `source.p`.
-Do not apply the sign twice when supplying already signed surface pressures.
+The packed imaginary coordinate is decoded as:
+
+```python
+blade = code % 10
+span_index = (code // 10) % 100
+transverse_index = (code // 1000) % 100
+chord_index = code // 100000
+```
+
+**The supplied mesh contract uses `mesh_idx_y` for chord**, regardless of the
+historical names in SourceDrawer. The `t` field does not select a pressure
+channel. For example, `100052` selects blade 2, span 0.5 and chord 0.1.
+Index `i` means `i/10`, not `i/9`: index 5 means the middle of the span and
+index 1 means 10% chord. Normal bins are 0–9; the exact endpoint bin 10 is also
+accepted because `int(coordinate*10)` in SourceDrawer can produce it.
+The pressure field is bilinearly interpolated from its cell centers to those
+coordinates, with constant extension at blade edges.
+
+For a decoded pressure jump, the source value is:
+
+```python
+source_pressure = amplitude * (mesh.real / 255) * pressure_jump / 2
+```
+
+This represents equal and opposite surface pressures `+jump/2` and `-jump/2`.
+The mesh supplies the sign exactly once. `amplitude` is now a dimensionless
+source gain (default 1), **not** a desired RMS or sine-wave peak. No chunkwise
+normalization removes the model's flow-speed or turbulence dependence.
+Each blade has a deterministic independent seed derived from `noise.seed` and
+its blade index. If no seed is supplied, source type and position determine
+the master seed. Thus restarting or changing chunk sizes preserves the signal;
+different blades and sources need not share one waveform.
+
+`MeshReader.sample(..., transform=...)` evaluates the mapper on each intact
+endpoint frame **at the same output simulation times**, then interpolates the
+two resulting pressures. It never interpolates packed labels. Even when two
+opposite weights would cancel, contributions from different blade regions
+remain distinct. Playback handles periodic wrap and arbitrary positive speed
+without rounding the source time axis. When no transform is supplied, the
+reader returns linearly interpolated weights and nearest-frame labels; this
+fallback is for raw mesh inspection, not the source-pressure mapping.
+Temporary endpoint arrays are bounded to 64 frames, and two mesh files are
+cached per sampling request. Noise models are cached across solver chunks.
+
+Pressure is sampled on the absolute acoustic clock using a local 16-tap
+windowed-sinc interpolator. This avoids synthesizing noise FFTs at the solver's
+potentially MHz sample rate. `phase` remains a time offset in seconds and
+must not shift a request before zero; initial interpolation taps use constant
+extension before zero. `speed` changes mesh playback only: provide the actual
+blade-relative flow in `noise.flow_speed` for the selected operating speed.
+`freq` is unused. No BPF envelope, Doppler resampling or extra motion effects
+are added by this mapper.
+
+A source configuration can now contain all `BladeConfig` options under `noise`:
+
+```yaml
+sources:
+  - type: test2
+    x: 120
+    y: 150
+    z: 4
+    speed: 1.0
+    amplitude: 1.0
+    phase: 0.0
+    noise:
+      seed: 42
+      flow_speed: 25.0       # actual relative speed, m/s; scalar or n_span values
+      chord: 0.035           # m; scalar or n_span values
+      span: 0.1              # modeled blade length, m
+      turbulence_intensity: 0.025
+      length_scale: 0.007
+      angle_of_attack: 4.0   # degrees relative to zero lift
+      tip_shape: rounded
+      n_span: 8
+      n_chord: 12
+      sample_rate: 24000
+      f_min: 80
+      f_max: 8000
+```
+
+Missing `noise` options use the documented generator defaults. An old
+`source.amiet` configuration must be migrated to `source.noise`; it is rejected
+rather than silently used with a different model. The upper band is limited
+to the smallest of requested `f_max`, 0.45 times the solver rate, 0.45 times
+the synthesis rate, and `sound_speed/(4*max(dx,dy,dz))`. The last bound uses
+four cells per wavelength as a conservative starting point. Heterogeneous
+media or a different actual sound speed still require a resolution check.
 
 [k-Wave's dipole example](https://www.k-wave.org/documentation/example_tvsp_homogeneous_medium_dipole.php)
 allows opposite pressure sources or a velocity source. Pressure-source lobes
 must balance in volume-weighted sum, while the dipole moment must remain
 consistent as the blade crosses grid cells. Image normalization by 255 alone
-cannot establish force or radiated SPL. Calibrate the source operator and
-lobe separation, or map force to the appropriate velocity/body-force source.
-The existing moving mask is not a rigid scattering boundary, so bare
-hydrodynamic wall pressures alone would not make it scatter turbulence.
-
-The usable frequency band is limited by spatial resolution as well as `dt`.
-[k-Wave's filtering documentation](https://www.k-wave.org/documentation/example_tvsp_homogeneous_medium_monopole.php)
-explains the spatial Nyquist limit. Use a more conservative resolved band and
-check mesh convergence. No BPF envelope or Doppler processing should be added
-here; motion belongs to the propagation/source-placement stage. A moving
-zero-mean noise field by itself does not establish correct deterministic
-loading or thickness tones.
-
-The earlier `Amiet/source_noise.py` integration is a far-field-shaped prototype;
-`Generation/noise.py` does not silently replace it. No application of this new
-field to `load_source` or the real mesh has been run.
+cannot establish force or radiated SPL. The implemented scaling is a
+pressure-like source convention; calibrate the solver source operator and
+lobe separation before interpreting far-field levels as absolute predictions.
+A moving zero-mean noise map also does not by itself establish correct
+steady-loading or thickness tones.
 
 ## Validation performed
 
@@ -262,14 +330,18 @@ Run only the standalone checks with:
 python3.10 -m unittest discover -s Generation/tests -v
 ```
 
-Eight tests cover numerical Fresnel equivalence to independent quadrature,
+Fourteen tests cover numerical Fresnel equivalence to independent quadrature,
 chunk/restart reproducibility and absence of repeated blocks, one-sided PSD
 variance normalization, conservation of the BPM-equivalent force spectra,
 leading-edge turbulence-intensity scaling, mechanism independence, tip
 localization and geometry sensitivity, span-varying/invalid inputs, and WAV
 length/normalization/source consistency. These are numerical checks, not
-experimental acoustic validation. They import neither the k-Wave runner nor
-mesh readers.
+experimental acoustic validation. Mapping tests additionally check the packed
+coordinate example, ignored transverse coordinate, opposite signs, independent
+blades, interpolation before label mixing, periodic playback, chunk boundaries
+and source ordering. They use tiny synthetic NPZ meshes. The runner is never
+imported: only its `load_source` function definition is extracted for the
+placement test. No solver, worker processes or real mesh are executed.
 
 For the default blade, increasing gust quadrature from 48 to 96 modes changed
 the mean integrated leading-edge pressure PSD by about 0.24%; chordwise
