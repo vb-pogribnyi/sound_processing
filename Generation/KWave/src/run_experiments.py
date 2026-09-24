@@ -4,6 +4,7 @@ import yaml
 import json
 import h5py
 import shutil
+import struct
 import cv2 as cv
 import numpy as np
 from pathlib import Path
@@ -84,17 +85,49 @@ def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, m
         out_queue.put(msg)
 
 
+def append_probe_wav(path, samples, sampling_rate, reset=False):
+    """Append mono float32 pressure samples and refresh the playable WAV header."""
+    samples = np.asarray(samples, dtype='<f4').reshape(-1)
+    # IEEE float WAVE: fmt (including cbSize), fact, and data chunks.
+    header_format = '<4sI4s4sIHHIIHHH4sII4sI'
+    header_size = struct.calcsize(header_format)
+    with open(path, 'w+b' if reset else 'r+b') as wav:
+        if reset:
+            wav.write(bytes(header_size))
+        wav.seek(0, os.SEEK_END)
+        data_size = wav.tell() - header_size + samples.nbytes
+        if data_size + header_size - 8 > 0xffffffff:
+            raise ValueError('Probe exceeds the 4 GiB WAV size limit')
+        wav.write(samples.tobytes())
+        wav.seek(0)
+        wav.write(struct.pack(
+            header_format, b'RIFF', data_size + header_size - 8, b'WAVE',
+            b'fmt ', 18, 3, 1, sampling_rate, sampling_rate * 4, 4, 32, 0,
+            b'fact', 4, data_size // 4, b'data', data_size,
+        ))
+
+
+def slice_to_bgr(pressure):
+    """Frame-relative logarithmic intensity; positive blue, negative red."""
+    pressure = np.asarray(pressure, dtype=np.float64)
+    magnitude = np.abs(np.where(np.isfinite(pressure), pressure, 0.0))
+    peak = magnitude.max(initial=0.0)
+    pixels = np.zeros((*pressure.shape, 3), dtype=np.uint8)
+    if peak == 0:
+        return pixels
+    relative = magnitude / peak
+    # Adapt the log knee to weak nonzero signals, with a 120 dB floor
+    # so numerical noise cannot set an arbitrarily large display range.
+    knee = np.clip(np.percentile(relative[relative > 0], 10), 1e-6, 1e-2)
+    intensity = np.rint(240 * np.log1p(relative / knee) / np.log1p(1 / knee)).astype(np.uint8)
+    pixels[..., 0] = np.where(pressure > 0, intensity, 0)
+    pixels[..., 2] = np.where(pressure < 0, intensity, 0)
+    return pixels
+
+
 def save_slice_img(slice, dirname, out_idx, gif_task_queue):
     os.makedirs(os.path.join(dirname, 'frames'), exist_ok=True)
-    slice = np.stack([slice, np.zeros_like(slice), slice], axis=-1)
-    slice[:, :, 2] *= -1
-    slice[slice < 0] = 0
-    slice[slice < 1e-45] = 1e-45
-    slice = (100 + np.log(slice)) * 1.5
-    slice[slice < 0] = 0
-    # slice[mic_position[0], mic_position[1], 1] = 255
-    cv.imwrite(os.path.join(dirname, 'frames', f'{str(out_idx).zfill(5)}.png'), slice.astype(np.uint8))
-
+    cv.imwrite(os.path.join(dirname, 'frames', f'{str(out_idx).zfill(5)}.png'), slice_to_bgr(slice))
     gif_task_queue.put(dirname)
 
 
@@ -194,8 +227,8 @@ def run_experiment(base_path, config):
         medium = kWaveMedium(sound_speed=343)
         medium.density = 1
     else:
-        sound_speed = spheres_noise(kgrid, base_val=343, min_val=320, max_val=360, min_rad=5, max_rad=1024, seed=config['sspeed_seed'], dbg_file='/app/Generation/KWave/c_noise.png')
-        density_map = spheres_noise(kgrid, base_val=1.225, min_val=1.0, max_val=1.4, min_rad=5, max_rad=1024, seed=config['dens_seed'], dbg_file='/app/Generation/KWave/density_noise.png')
+        sound_speed = spheres_noise(kgrid, base_val=343, min_val=220, max_val=420, min_rad=5, max_rad=1024, seed=config['sspeed_seed'], dbg_file='/app/Generation/KWave/c_noise.png')
+        density_map = spheres_noise(kgrid, base_val=0.9, min_val=1.0, max_val=1.8, min_rad=5, max_rad=1024, seed=config['dens_seed'], dbg_file='/app/Generation/KWave/density_noise.png')
         medium = kWaveMedium(sound_speed=sound_speed)
         gc.collect()
         medium.density = density_map
@@ -321,6 +354,18 @@ def run_experiment(base_path, config):
     if os.path.exists(result_dir):
         n_samples_ready = len([f.name for f in os.scandir(result_dir)])
     out_idx = n_samples_ready
+    probe_path = os.path.join(base_path, 'probe.wav')
+    probe_index = tuple(
+        (config['export'][f'{axis}_end'] - config['export'][f'{axis}_start']) // 2
+        for axis in ('z', 'y', 'x')
+    )
+    probe_rate = int(config['sampling'])
+    # Reconstruct on resume, including runs started before WAV export existed.
+    # Keep the WAV outside outputs, whose entries are counted as time samples.
+    append_probe_wav(probe_path, [], probe_rate, reset=True)
+    for sample_idx in range(n_samples_ready):
+        previous = np.load(os.path.join(result_dir, f'{sample_idx:05d}.npy'), mmap_mode='r')
+        append_probe_wav(probe_path, [previous[probe_index]], probe_rate)
     current_time = ckpt_time
     source_task_queue.put((current_time, current_time + Nt, config['sources']))
     general_logger.info(f"Putting source input from {current_time} to {current_time + Nt}")
@@ -362,6 +407,7 @@ def run_experiment(base_path, config):
             ]
             np.save(os.path.join(result_dir, f'{str(out_idx).zfill(5)}.npy'), exported_sources)
             assert np.sum(exported_sources) != 0, "Something has gone wrong."
+            append_probe_wav(probe_path, [exported_sources[probe_index]], probe_rate)
             for i, slice in enumerate(config['slices']):
                 dirname = os.path.join(base_path, 'slices', str(i).zfill(3))
                 if slice['axis'] == 'x':
