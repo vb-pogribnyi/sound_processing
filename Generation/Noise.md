@@ -5,6 +5,8 @@ in Pascals, indexed `[span, chord, time]`. It combines an Amiet leading-edge
 surface response with BPM-based equivalent trailing-edge and tip loading.
 It does not load the k-Wave mesh, import `run_experiments.py`, or synthesize
 rotation, BPF/tonal noise, Doppler, distance attenuation, or observer motion.
+The k-Wave runner separately adds mesh-driven thickness displacement in
+`load_source()` before acoustic propagation; see the final section below.
 
 This is an inexpensive stochastic acoustic-source model, not a flow solver or
 validated prediction of the actual wall pressure on an arbitrary airfoil.
@@ -349,3 +351,192 @@ integrated differences remained below 0.7%. This check does not establish
 convergence for other geometries or all cross-spectral quantities.
 The saved demo contains 0.25 seconds (`8 × 12 × 6000`) of pressure and a
 240,000-sample, 48 kHz, five-second WAV. No real mesh integration was tested.
+
+
+## Mesh-driven thickness source in k-Wave
+
+`load_source()` now combines the existing broadband pressure source with
+`Generation/kwave_thickness.py`. Displacement is enabled by default. It uses
+only the rotating mesh, its `dt`/spacing, and `source.speed`; no rotor-preview
+configuration, observer position, RPM value, or prescribed BPF is involved.
+`probe.wav` remains the sampled propagated field.
+
+**Temporary geometry approximation, explicitly authorized for this stage:**
+the old mesh's red/blue regions are artificial pressure lobes, not solid blade
+cross-sections. Their absolute weights are used only to locate a smooth proxy
+volume distribution for each labeled blade. Its integral is normalized to a
+fixed **1e-5 m³ (10 cm³) per blade**. This is an assumed volume, not a volume
+measured from the pressure raster. Replace it after calculating the airfoil
+area and integrating along the span. A future solid-volume channel can replace
+this spatial proxy without changing the acoustic mass-source equation.
+
+Optional per-source configuration:
+
+```yaml
+sources:
+  - type: 03_diff_airfoil/1e-07/2/0.008
+    speed: 1.1
+    # ... existing x/y/z, amplitude and noise configuration ...
+    thickness:
+      enabled: true
+      volume_per_blade_m3: 1.0e-5
+      f_max: 6000
+```
+
+Set `thickness.enabled: false` to reproduce the old broadband-only source.
+`amplitude` continues to scale broadband loading only; it does not change the
+physical displaced volume. Set volume or disable thickness independently.
+`speed: 0` freezes geometry and gives zero displacement noise while the local
+broadband source may remain active.
+
+For volume fraction `phi(x,t)` (displaced m³ per grid-cell m³), use
+
+```
+mass injection per unit volume = rho0 * dphi/dt       [kg/(m³ s)]
+source.p_thickness = rho0*c0*dx/2 * dphi/dt            [Pa]
+```
+
+This conversion matches the **vendored** additive k-Wave pressure-source
+scaling `2*dt/(N*c0*dx)` into each of N split-density fields. Their sum receives
+`rho0*dphi/dt*dt`. The heterogeneous additive-pressure scaler also now converts
+one-based source indices to zero-based NumPy indices when looking up c0.
+The source worker receives the actual local medium impedance
+`rho0*c0`, including heterogeneous sound speed and density. This is a mass
+source, not a pressure waveform already propagated to an observer. It is the
+volume-displacement representation of the thickness mechanism in the
+[FW-H source equation](https://ntrs.nasa.gov/api/citations/19980119846/downloads/19980119846.pdf).
+
+One geometry cycle is sampled and cached per mesh/settings, with each blade's
+volume held constant at every phase. A smooth temporal low-pass filter reduces
+voxel rasterization jitter. The cutoff is the minimum of `f_max` (default
+6000 Hz), the grid's conservative four-cells-per-wavelength limit, solver and
+mesh-playback Nyquist margins, and 45% of the exported sample rate. The periodic
+cubic volume interpolant is differentiated at **absolute solver time**, so
+chunking, checkpoint restarts and periodic wrap do not reset the source.
+The first use reads through a mesh cycle; subsequent chunks reuse the cache.
+
+The worker logs the blade count, assumed volume, cutoff, tracked centroid speed,
+and estimated RPM. RPM is a diagnostic from the labeled blade's centroid angle
+about the mesh's z axis. It can be unresolved for centered or nonrotating
+geometry; the injected source uses volume changes, not that RPM estimate.
+
+Limitations: the spatial volume proxy and assumed volume are provisional, and
+absolute acoustic levels are not validated. Rasterization artifacts below the
+cutoff can remain. Steady aerodynamic loading is still a separate missing
+source mechanism. Place sources outside the PML: the earlier supplied source
+at z=4..8 lies inside the default 10-cell absorbing layer and will be distorted
+there. Changing source physics requires a **fresh experiment**, not resuming
+an old acoustic checkpoint.
+
+
+## Extract a probe from existing experiment outputs
+
+```bash
+# Center of the experiment.yml export region:
+python3.10 Generation/KWave/src/extract_probe.py /experiments/102
+
+# Explicit global grid indices in x, y, z order (not metres):
+python3.10 Generation/KWave/src/extract_probe.py /experiments/102 --mic 239 227 191
+```
+
+The script creates these files under the experiment's `probes/` directory
+(with coordinates in each filename):
+
+- `probe_x239_y227_z191.npy`: raw pressure samples in chronological order.
+- `probe_x239_y227_z191.png`: full-range pressure spectrum.
+- `probe_x239_y227_z191_0-1500Hz.png`: detailed spectrum from 0 to 1500 Hz,
+  with the same 1600 × 800 pixel image size. Fourfold FFT zero-padding makes
+  the displayed curve denser; the recording duration still determines the
+  actual ability to resolve nearby frequencies.
+- `probe_x239_y227_z191_A-weighted.wav`: mono 48 kHz, 16-bit PCM listening
+  preview with DC removed, A-weighting applied, and peak normalization to
+  −1 dBFS. Normalization happens after resampling and filtering. Samples are
+  rounded and clipped before integer conversion to prevent 16-bit overflow.
+
+An existing probe cache is reused without reading the 3D output frames.
+Both images and the WAV are regenerated even when using the cache. Use
+`--refresh` to rebuild the cache after an experiment produces additional samples.
+
+Both images use a full-record Hann periodogram in dB re 1 Pa²/Hz, with DC
+removed for analysis only. They show **unweighted pressure**, so the A-weighted,
+normalized WAV will have a different spectrum and level. The WAV's digital
+A-weighting approximation is for listening, not calibrated SPL measurement;
+normalization removes absolute pressure level information. Saved `.npy`
+pressure samples are unchanged.
+
+The frequency axis uses the runner's integer solver-step sampling cadence when
+`mesh.dt` is available, otherwise `sampling`. Missing or duplicate frame numbers
+and microphones outside the exported region are rejected instead of silently
+compressing the time axis or selecting another voxel.
+
+## Experiment source modes and propagating pressure bumps
+
+`Generation/KWave/experiment.yml` exposes these source-only controls:
+
+```yaml
+source_mode: both        # amiet | loading | both
+pressure_noise:
+  peak_pa: 0.01          # Peak source.p amplitude per event; 0 disables (default)
+  seed: 57
+  rate_hz: 20.0          # Mean events/second across the entire grid
+  radius_cells: 1.0     # Gaussian spatial sigma, truncated at 3 sigma
+  duration_s: 0.001     # Duration of each smooth bipolar pulse
+```
+
+`amiet` selects the existing leading/trailing-edge broadband model and skips
+thickness generation. Tip noise is disabled in this mode. `loading` selects
+the existing mesh-driven **thickness/displacement** model and skips broadband
+synthesis; it is not a separate aerodynamic lift-loading model. `both` sums
+the two. A source's `mode` overrides `source_mode`; `noise.leading_edge`,
+`noise.trailing_edge` and `thickness.enabled` retain their existing controls.
+With an explicit mode, tip noise defaults off; `noise.tip: true` can enable it
+in `both` mode. Omitting modes retains the previous source defaults.
+
+Pressure bumps are **solver sources**, not export noise. A seeded Poisson
+event count and random start times/centers define localized events throughout
+the grid. Each event has a Gaussian spatial footprint and one sine cycle
+under a Hann envelope, with random polarity. The temporal shape has smooth
+endpoints and zero continuous-time integral. `peak_pa` controls the peak
+per-event pressure-source input before k-Wave's usual source scaling; it does
+not specify receiver RMS pressure. Overlapping events add. The event rate is
+an expectation; a short run can have no events. Events near the end are
+truncated by the simulation duration. Locations include the absorbing boundary
+region, where the solver's normal absorption applies.
+
+The source mask is the union of the original blade bounding box and the event
+footprints. The worker places blade pressure into its corresponding rows and
+adds the current event pulses to `source.p`, in k-Wave's x-fastest ordering.
+This allocates time histories only for selected source cells, rather than a
+full-grid × time array. Memory still grows with the union of all event
+footprints, so increasing rate or radius increases source-buffer memory.
+The same seed/configuration reproduces events across chunks and restarts.
+All NPY, WAV and GIF output comes from propagated solver pressure.
+
+The medium construction, original requirement for both seeds, medium images,
+pressure slice renderer, export logic and post-solver input-file deletion are
+restored to the committed version. There is no added pre-solver deletion,
+medium configuration extension or medium diagnostics output.
+
+Read-only verification found that `spheres_noise` arrays are assigned to
+`medium.sound_speed` and `medium.density`, retained as `c0` and `rho0`, and
+serialized as full spatial HDF5 datasets consumed by the CUDA solver. A tiny
+writer test checks both arrays and their storage order. The saved experiment
+102 output has `c_ref = 299.230133 m/s`, rather than the uniform 343 m/s default;
+this supports use of the varied speed field but is not a voxelwise record of
+the historical medium. No propagation experiment or full real mesh was run.
+
+The earlier thickness implementation's `MeshReader.sample_at()` extension
+samples arbitrary mesh phases so a periodic, filtered volume field can be
+constructed and differentiated. `sample()` delegates to it for ordinary
+contiguous time intervals. Zero playback speed represents stationary geometry;
+real-valued fields can be interpolated without treating them as packed labels.
+These changes predate the source-mode/background-noise work and are retained.
+In `loading` mode, geometry is read through `sample_at()` inside `MeshThickness`
+and the cached derivative is evaluated by `sample_volume_rate()`, so no extra
+`mesh_reader.sample()` call is needed for each chunk.
+
+`source_impedance` is `rho0*c0` at the blade source cells. The thickness branch
+uses it in `source.p = rho0*c0*dx/2 * dphi/dt`, matching the vendored pressure
+source conversion to split-density increments. It supplies local medium
+values for converting the displacement rate; it is not another pressure field
+or modification to the propagation medium.

@@ -12,6 +12,7 @@ from PIL import Image
 import sys
 sys.path.append('/app/Generation/KWave/')
 from utils import spheres_noise
+from experiment_effects import source_options, PressureBumps
 
 from kwave.data import Vector
 from kwave.kgrid import kWaveGrid
@@ -65,7 +66,7 @@ def worker_gif(task_queue, logger):
         if msg is None:
             break
 
-def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds):
+def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds, source_impedance=None, output_sample_rate=None, pressure_bumps=None, mesh_rows=None):
     while True:
         msg = in_queue.get()
         if msg is None:
@@ -79,7 +80,15 @@ def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, m
         shm_array *= 0
         for source in sources_cfg:
             logger.info(f"Loading source")
-            shm_array += load_source(source, time_start, time_end, mesh_readers[source['type']], source_bounds, logger)
+            mesh_pressure = load_source(source, time_start, time_end, mesh_readers[source['type']],
+                                        source_bounds, logger, source_impedance, output_sample_rate)
+            if mesh_rows is None:
+                shm_array += mesh_pressure
+            else:
+                shm_array[mesh_rows] += mesh_pressure
+            del mesh_pressure
+        if pressure_bumps is not None:
+            pressure_bumps.add_to_source(shm_array, time_start, time_end)
         logger.info(f"Source generation done.")
         logger.info(f'Peak memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB')
         out_queue.put(msg)
@@ -132,18 +141,30 @@ def save_slice_img(slice, dirname, out_idx, gif_task_queue):
 
 
 
-def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger):
+def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, logger,
+                source_impedance=None, output_sample_rate=None):
     # Import source synthesis lazily, without changing the solver startup.
     repository_dir = str(Path(__file__).resolve().parents[3])
     if repository_dir not in sys.path:
         sys.path.insert(0, repository_dir)
     from Generation.kwave_noise import MeshNoise
+    from Generation.kwave_thickness import thickness_source
+    from experiment_effects import source_options
+
+    source_cfg = source_options(source_cfg)
+    mode = source_cfg.get('mode', 'both')
 
     mesh_meta = mesh_reader.meta
-    pressure_mapper = MeshNoise(source_cfg, mesh_meta, logger)
-    # Apply noise before temporal interpolation: packed labels must stay intact.
-    mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger,
-                              transform=pressure_mapper)
+    if mode == 'loading':
+        # MeshThickness samples geometry via reader.sample_at and caches its
+        # volume derivative. There is no broadband field to sample in this mode.
+        mesh = np.zeros(tuple(int(mesh_meta[k]) for k in ('nx', 'ny', 'nz'))
+                        + (time_end-time_start,), dtype=np.float32)
+    else:
+        pressure_mapper = MeshNoise(source_cfg, mesh_meta, logger)
+        # Apply noise before temporal interpolation: packed labels must stay intact.
+        mesh = mesh_reader.sample(source_cfg['speed'], time_start, time_end, logger,
+                                  transform=pressure_mapper)
     mesh_xstart = int(source_cfg['x'] - source_bounds['x'][0])
     mesh_xend = mesh_xstart + mesh.shape[0]
     mesh_ystart = int(source_cfg['y'] - source_bounds['y'][0])
@@ -162,6 +183,26 @@ def load_source(source_cfg, time_start, time_end, mesh_reader, source_bounds, lo
             or mesh_xend > source_p.shape[0] or mesh_yend > source_p.shape[1]
             or mesh_zend > source_p.shape[2]):
         raise ValueError('Source mesh lies outside the configured source bounds')
+    thickness = (thickness_source(mesh_reader, source_cfg, output_sample_rate, logger)
+                 if mode != 'amiet' else None)
+    if thickness is not None:
+        if source_impedance is None:
+            # Standalone load_source callers can supply a local impedance map.
+            # The runner always supplies its actual (possibly heterogeneous) medium.
+            noise_cfg = source_cfg.get('noise', {})
+            impedance = float(noise_cfg.get('density', 1.225))*float(noise_cfg.get('sound_speed', 343.))
+        elif np.ndim(source_impedance) == 0:
+            impedance = float(source_impedance)
+        else:
+            impedance = source_impedance[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend]
+            if impedance.shape != mesh.shape[:3]:
+                raise ValueError('Source impedance map does not match source bounds')
+            impedance = impedance[..., None]
+        # k-Wave scales source.p by 2*dt/(N*c*dx) into each split density.
+        # This produces rho*dphi/dt*dt total mass injection, not a WAV tone.
+        rate = thickness.sample_volume_rate(time_start, time_end)
+        rate *= .5*float(mesh_meta['dx'])*impedance
+        mesh += rate
     source_p[mesh_xstart:mesh_xend, mesh_ystart:mesh_yend, mesh_zstart:mesh_zend] = mesh
 
     return np.transpose(source_p, [2, 1, 0, 3]).reshape(-1, Nt)
@@ -177,6 +218,9 @@ def get_mesh_bounds(vmin, vmax, source, mesh_meta, key, nkey):
     return vmin, vmax
 
 def run_experiment(base_path, config):
+    # Validate selection before workers start; per-source mode overrides the default.
+    config = dict(config)
+    config['sources'] = [source_options(s, config.get('source_mode')) for s in config['sources']]
     os.makedirs(os.path.join(base_path, 'outputs'), exist_ok=True)
     os.makedirs(os.path.join(base_path, 'slices'), exist_ok=True)
     proc_dir = '/inputs/processing'
@@ -260,12 +304,30 @@ def run_experiment(base_path, config):
             cv.imwrite(os.path.join(dirname, 'density_map.png'), (d_slice_data * 255).astype(np.uint8))
 
 
+    # Local impedance for converting the displacement rate to k-Wave pressure
+    # input. Preserve the actual medium values instead of assuming air defaults.
+    def source_region(value):
+        if np.size(value) == 1:
+            return float(np.asarray(value).reshape(-1)[0])
+        return np.asarray(value)[xmin:xmax, ymin:ymax, zmin:zmax]
+    source_impedance = source_region(medium.sound_speed)*source_region(medium.density)
+
     # Start GIF and MeshReader processes
     source = kSource()
     source.p_mask = np.zeros([kgrid.Nx, kgrid.Ny, kgrid.Nz], dtype=bool)
     source.p_mask[xmin:xmax, ymin:ymax, zmin:zmax] = 1
     n_src_points = (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
     assert n_src_points == source.p_mask.sum(), "Something wrong with source mask"
+    pressure_bumps = PressureBumps(config.get('pressure_noise'),
+                                  (kgrid.Nx, kgrid.Ny, kgrid.Nz), kgrid.dt, config['time'])
+    mesh_rows = None
+    if pressure_bumps.events:
+        mesh_indices = np.flatnonzero(source.p_mask.ravel(order='F'))
+        pressure_bumps.add_to_mask(source.p_mask)
+        mesh_rows = np.searchsorted(np.flatnonzero(source.p_mask.ravel(order='F')), mesh_indices)
+        n_src_points = int(source.p_mask.sum())
+    else:
+        pressure_bumps = None
     source.p = np.zeros([n_src_points, Nt], dtype=np.float32)
     try:
         old_shm = SharedMemory(name="source_p_shm")
@@ -285,7 +347,8 @@ def run_experiment(base_path, config):
     ))
     source_logger.addHandler(source_log_handler)
     source_process = Process(target=worker_source, args=(
-        source_task_queue, source_task_out_queue, source_logger, source_p_shm.name, shared_p.shape, shared_p.dtype, mesh_readers, source_bounds
+        source_task_queue, source_task_out_queue, source_logger, source_p_shm.name, shared_p.shape, shared_p.dtype, mesh_readers, source_bounds,
+        source_impedance, config['sampling'], pressure_bumps, mesh_rows
     ))
     source_process.start()
     
@@ -347,7 +410,7 @@ def run_experiment(base_path, config):
     bkp_output_file = str(execution_options.output_file).replace(proc_dir, bkp_proc_dir) + '.bkp'
     if os.path.exists(bkp_ckpt_file):
         with h5py.File(bkp_ckpt_file, 'r') as f:
-            ckpt_time = f['t_index'][0][0, 0]
+            ckpt_time = int(f['t_index'][0][0, 0])
             start_step_idx = int(ckpt_time/execution_options.checkpoint_timesteps)
         shutil.copy(bkp_ckpt_file, execution_options.checkpoint_file)
         shutil.copy(bkp_output_file, execution_options.output_file)
@@ -385,7 +448,7 @@ def run_experiment(base_path, config):
         general_logger.info(f"Putting source input from {current_time} to {current_time + Nt}")
         output = kspaceFirstOrder3D(kgrid, source, sensor, medium, simulation_options, execution_options)
         os.remove(execution_options.input_file)
-        current_time = output['t_index']
+        current_time = int(output['t_index'])
         sensor_data = output["p"].T.reshape(kgrid.Nz, kgrid.Ny, kgrid.Nx, -1)
         start_idx = 0
         if np.sum(sensor_data[:, :, :, 0]) == 0:

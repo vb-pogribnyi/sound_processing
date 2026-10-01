@@ -35,3 +35,12 @@
 13. - In the exported debug image draw the energy (or frequency) of the received signal - something that indicates higher density.
 14. + Write exported data gradually - currently it required massive amounts of RAM
 15. + It seems to split z axis in halfs with heterogenous configuration (Add density slices at same positions as pressure)
+
+
+
+
+
+Absolute source calibration remains questionable.
+The mapper injects opposite signed pressure lobes as additive source.p. In k-Wave, that represents mass injection, 
+not enforced blade-surface pressure. Thus ±pressure_jump/2 alone does not establish a physically calibrated loading 
+dipole; its spatial weighting and separation need validation.

@@ -1,0 +1,48 @@
+description: Amiet noise
+sampling: 16000         # 16 kHz sampling rate
+time: 0.3               # overall time, in seconds
+sspeed_seed: 55
+dens_seed: 56
+# amiet = leading/trailing-edge broadband only; loading = existing mesh
+# displacement/thickness source; both = sum. A source's mode overrides this.
+source_mode: both
+# Random pressure-source events throughout the grid; propagated by k-Wave.
+pressure_noise:
+  peak_pa: 0.0          # Peak source.p amplitude per event; 0 disables
+  seed: 57
+  rate_hz: 20.0        # Mean number of events per second over the whole grid
+  radius_cells: 1.0    # Gaussian spatial sigma; support extends to 3 sigma
+  duration_s: 0.001    # Duration of each smooth bipolar pressure pulse
+export:
+  x_start: 0
+  x_end: 479
+  y_start: 200
+  y_end: 255
+  z_start: 128
+  z_end: 255
+mesh:
+  size_x: 512
+  size_y: 256
+  size_z: 256
+  dx: 0.008
+  dy: 0.008
+  dz: 0.008
+  dt: 1e-07
+slices:
+  - axis: z
+    position: 12
+  - axis: z
+    position: 120
+  - axis: x
+    position: 350
+  - axis: y
+    position: 150
+sources:
+  - type: 03_diff_airfoil/1e-07/2/0.008
+    speed: 1.1
+    x: 120
+    y: 100
+    z: 4
+    freq: 1000
+    amplitude: 0.2
+    phase: 0

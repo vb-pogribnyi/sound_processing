@@ -29,11 +29,24 @@ class MeshReader:
         different blade/coordinate contributions when a voxel changes owner.
         Without a transform, weights are linear and labels are nearest-frame.
         """
-        if not np.isfinite(speed) or speed <= 0:
-            raise ValueError('Mesh playback speed must be finite and positive')
         if (int(timestep_start) != timestep_start or int(timestep_end) != timestep_end
                 or timestep_start < 0 or timestep_end <= timestep_start):
             raise ValueError('Expected nonempty, nonnegative integer timestep interval')
+        return self.sample_at(speed, np.arange(int(timestep_start), int(timestep_end)),
+                              logger, transform)
+
+    def sample_at(self, speed, timesteps, logger=None, transform=None, field='arr_0'):
+        """Sample arbitrary positions on the simulation clock, including wrap.
+
+        Fractional/negative times are useful for periodic geometry analysis.
+        Transforms see intact endpoint labels and the requested output times.
+        Optional real `volume_fraction` NPZ data is interpolated as geometry.
+        """
+        if not np.isfinite(speed) or speed < 0:
+            raise ValueError('Mesh playback speed must be finite and nonnegative')
+        timesteps = np.asarray(timesteps)
+        if timesteps.ndim != 1 or not timesteps.size or not np.isfinite(timesteps).all():
+            raise ValueError('Expected a nonempty finite one-dimensional timestep array')
         nt = int(self.meta['nt'])
         if nt < 1:
             raise ValueError('Mesh nt must be positive')
@@ -44,14 +57,16 @@ class MeshReader:
             if logger:
                 logger.info('Loading mesh file %s', self.files[index])
             with np.load(self.files[index], allow_pickle=False) as archive:
-                data = archive['arr_0']
+                if field not in archive:
+                    raise ValueError(f'Mesh archive {self.files[index]} lacks {field!r}')
+                data = archive[field]
             if data.ndim != 4 or data.shape[-1] != nt:
                 raise ValueError('Mesh frame dimensions do not match metadata nt')
             return data
 
-        first = read_file(int(np.floor(timestep_start*speed)) % period // nt)
+        first = read_file(int(np.floor(timesteps[0]*speed)) % period // nt)
         spatial_shape, mesh_dtype = first.shape[:3], first.dtype
-        count = int(timestep_end-timestep_start)
+        count = len(timesteps)
         result = np.empty(spatial_shape+(count,), dtype=np.float32 if transform else mesh_dtype)
         del first
 
@@ -68,8 +83,7 @@ class MeshReader:
 
         # Bound temporary allocations independently of simulation chunk length.
         for offset in range(0, count, 64):
-            steps = np.arange(int(timestep_start)+offset,
-                              min(int(timestep_start)+offset+64, int(timestep_end)))
+            steps = timesteps[offset:offset+64]
             position = steps.astype(np.float64)*speed
             lower_index = np.floor(position).astype(np.int64)
             alpha = position-lower_index
@@ -81,12 +95,14 @@ class MeshReader:
                 if transform:
                     upper = transform(upper, steps)
                     block = lower*(1-alpha)+upper*alpha
-                else:
+                elif np.iscomplexobj(lower):
                     # Packed labels are categorical, even though stored in a
                     # complex array. Blending the encoded number is invalid.
                     block = lower.copy()
                     block.real = lower.real*(1-alpha)+upper.real*alpha
                     block.imag = np.where(alpha < .5, lower.imag, upper.imag)
+                else:
+                    block = lower*(1-alpha)+upper*alpha
             else:
                 block = lower
             if block.shape != spatial_shape+(len(steps),):
