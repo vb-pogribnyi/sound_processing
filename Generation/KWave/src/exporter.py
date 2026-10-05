@@ -450,4 +450,4 @@ if __name__ == "__main__":
     # export('001', mics, sensors_direction, 5, [100, 100, 5], 'debug_img.png')
     # export('104', mics, sensors_direction, 15, [100, 25, 15], 'debug_img.png')
     # export('008', mics, sensors_direction, 5, [30, 15, 5], 'debug_img.png')
-    export('102', mics, sensors_direction, 5, [20, 5, 5], 'debug_img.png', num_examples=500)
+    export('101', mics, sensors_direction, 5, [20, 5, 5], 'debug_img.png', num_examples=500)
