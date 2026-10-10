@@ -481,6 +481,7 @@ pressure_noise:
   rate_hz: 20.0          # Mean events/second across the entire grid
   radius_cells: 1.0     # Gaussian spatial sigma, truncated at 3 sigma
   duration_s: 0.001     # Duration of each smooth bipolar pulse
+  src_replica: false    # Replay captured source sound instead of the bipolar pulse
 ```
 
 `amiet` selects the existing leading/trailing-edge broadband model and skips
@@ -502,6 +503,36 @@ not specify receiver RMS pressure. Overlapping events add. The event rate is
 an expectation; a short run can have no events. Events near the end are
 truncated by the simulation duration. Locations include the absorbing boundary
 region, where the solver's normal absorption applies.
+
+With `src_replica: true`, each event replays the sources' own **sound**
+instead of the bipolar pulse: a Hann window (`duration_s` long) over a
+segment of the captured source sound, taken from a random earlier time.
+
+The capture is what a distant listener hears toward the center of the
+exported area: every source cell's `source.p` (amiet and thickness, all
+sources) summed with its plane-wave propagation delay toward that point
+(`SourceCapture` in `experiment_effects.py`). This is the radiated field, not
+the local source term. Summed without delays, the thickness term cancels
+almost exactly (a rigid blade keeps its volume) and the amiet lobes cancel in
+pairs; with delays, the capture contains the thickness tones, the blade
+dipole's spectral tilt, and the Doppler/modulation imprint as seen from that
+direction. A bump replays it from a fixed point, with the same strength in
+every direction - no motion or directivity is simulated for it.
+
+`peak_pa` is then a dimensionless gain. The footprint is normalised to unit
+sum, so with gain 1 an event's total `source.p` equals the captured signal,
+and at an equal distance it radiates the sources' sound at the sources' level.
+Each event's segment is chosen by the same seed (drawn after the schedule, so
+event times and places do not change) and ends, plus the capture's largest
+propagation delay, before the event starts. Events earlier than that have no
+history and stay silent. A random earlier segment, rather than the same time,
+keeps bumps from being coherent echoes of the sources.
+
+Segments are computed on demand: when an event is first reached, the worker
+re-synthesises the sources for that segment (plus the propagation margin).
+The source is deterministic in time, so this equals replaying from a rolling
+capture, needs no saved state across restarts, and costs about one extra
+source synthesis of `duration_s` per event.
 
 The source mask is the union of the original blade bounding box and the event
 footprints. The worker places blade pressure into its corresponding rows and

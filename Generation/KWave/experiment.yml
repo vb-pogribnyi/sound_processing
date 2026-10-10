@@ -13,6 +13,9 @@ pressure_noise:
   rate_hz: 20.0        # Mean number of events per second over the whole grid
   radius_cells: 1.0    # Gaussian spatial sigma; support extends to 3 sigma
   duration_s: 0.001    # Duration of each smooth bipolar pressure pulse
+  src_replica: false   # true: each bump replays a random earlier segment of the sources' sound
+                      # (amiet + thickness), as heard toward the export center; peak_pa becomes
+                      # a gain (1 = same level). Use a longer duration_s, e.g. 0.02
 export:
   x_start: 0
   x_end: 479

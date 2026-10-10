@@ -12,7 +12,7 @@ from PIL import Image
 import sys
 sys.path.append('/app/Generation/KWave/')
 from utils import spheres_noise
-from experiment_effects import source_options, PressureBumps
+from experiment_effects import source_options, PressureBumps, SourceCapture
 
 from kwave.data import Vector
 from kwave.kgrid import kWaveGrid
@@ -66,7 +66,7 @@ def worker_gif(task_queue, logger):
         if msg is None:
             break
 
-def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds, source_impedance=None, output_sample_rate=None, pressure_bumps=None, mesh_rows=None):
+def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, mesh_readers, source_bounds, source_impedance=None, output_sample_rate=None, pressure_bumps=None, mesh_rows=None, source_capture=None):
     while True:
         msg = in_queue.get()
         if msg is None:
@@ -88,6 +88,16 @@ def worker_source(in_queue, out_queue, logger, shm_name, shm_shape, shm_dtype, m
                 shm_array[mesh_rows] += mesh_pressure
             del mesh_pressure
         if pressure_bumps is not None:
+            if pressure_bumps.src_replica and pressure_bumps.replica_source is None:
+                def load_all(a, b, sources_cfg=sources_cfg):
+                    total = 0
+                    for source in sources_cfg:
+                        total = total + load_source(source, a, b, mesh_readers[source['type']], source_bounds,
+                                                    logger, source_impedance, output_sample_rate)
+                    return total
+                # Segments are computed when an event first needs one, then cached
+                pressure_bumps.set_replica_source(lambda a, n: source_capture.segment(load_all, a, n),
+                                                  source_capture.margin)
             pressure_bumps.add_to_source(shm_array, time_start, time_end)
         logger.info(f"Source generation done.")
         logger.info(f'Peak memory usage: {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB')
@@ -321,6 +331,12 @@ def run_experiment(base_path, config):
     pressure_bumps = PressureBumps(config.get('pressure_noise'),
                                   (kgrid.Nx, kgrid.Ny, kgrid.Nz), kgrid.dt, config['time'])
     mesh_rows = None
+    source_capture = None
+    if pressure_bumps.events and pressure_bumps.src_replica:
+        # Bumps replay the sources' sound as heard toward the exported area's center
+        export_center = [(config['export'][f'{c}_start'] + config['export'][f'{c}_end'])/2 for c in 'xyz']
+        source_capture = SourceCapture(source_bounds, export_center,
+                                       [config['mesh'][f'd{c}'] for c in 'xyz'], kgrid.dt)
     if pressure_bumps.events:
         mesh_indices = np.flatnonzero(source.p_mask.ravel(order='F'))
         pressure_bumps.add_to_mask(source.p_mask)
@@ -348,7 +364,7 @@ def run_experiment(base_path, config):
     source_logger.addHandler(source_log_handler)
     source_process = Process(target=worker_source, args=(
         source_task_queue, source_task_out_queue, source_logger, source_p_shm.name, shared_p.shape, shared_p.dtype, mesh_readers, source_bounds,
-        source_impedance, config['sampling'], pressure_bumps, mesh_rows
+        source_impedance, config['sampling'], pressure_bumps, mesh_rows, source_capture
     ))
     source_process.start()
     

@@ -15,8 +15,12 @@ The ```/app/Generation/KWave/CircularSignal/main.py``` generates the base mesh i
 ## Run container
 The module is meant to be launched in a docker container. The KWave input data is meant to be re-written frequently, so a RAM-based tmpfs directory is used for it. Two variants are presented below. One for smaller experiment volume and mesh step of 0.002 m - with tmpfs size=8G. The other one is for larger volume and mesh size of 0.008 m. Since mesh step is larger, the base mesh takes less mesh cells and more timesteps can fit into single run, so the tmpfs needs to be larger at size=24G.
 ``` bash
-docker run --gpus all --name kwave --shm-size=8G -v /home/vitalii/Desktop/Projects/KWave:/app -v /media/vitalii/Data/Experiments:/experiments --tmpfs /inputs:size=8G -it kwave:25apr2026 bash
-docker run --gpus all --name kwave --shm-size=8G -v /home/vitalii/Desktop/Projects/KWave:/app -v /media/vitalii/Data/Experiments:/experiments --tmpfs /inputs:size=24G -it kwave:25apr2026 bash
+docker run --gpus all --name kwave --shm-size=8G -v /home/vitalii/Desktop/Projects/sound_processing:/app -v /media/vitalii/Data/Experiments:/experiments --tmpfs /inputs:size=8G -it kwave:25apr2026 bash
+docker run --gpus all --name kwave --shm-size=8G -v /home/vitalii/Desktop/Projects/sound_processing:/app -v /media/vitalii/Data/Experiments:/experiments --tmpfs /inputs:size=24G -it kwave:25apr2026 bash
+
+
+sudo systemctl enable docker.service containerd.service
+docker run --gpus all --restart unless-stopped --name kwave_service --shm-size=8G -v /home/vitalii/Desktop/Projects/sound_processing:/app -v /media/vitalii/Data/Experiments:/experiments --tmpfs /inputs:size=24G -it kwave:25apr2026 python3.10 app/Generation/KWave/src/run_experiments.py
 ```
 Compile kwave as:
 ``` bash

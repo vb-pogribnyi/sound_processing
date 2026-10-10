@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT/'Generation/KWave/src'))
-from experiment_effects import source_options, PressureBumps
+from experiment_effects import source_options, PressureBumps, SourceCapture
 from utils import spheres_noise
 from Generation.tests.test_kwave_thickness import reader_for, translating_volume
 
@@ -76,6 +76,110 @@ class EffectsTests(unittest.TestCase):
         expected[blade_rows] = mesh_pressure
         bumps.add_to_source(expected,0,1000)
         np.testing.assert_array_equal(actual,expected)
+
+    def test_source_capture_matches_brute_force(self):
+        bounds = dict(x=(2,5),y=(1,3),z=(4,6))
+        capture = SourceCapture(bounds,(40,1,5),.01,1e-5,delay_resolution=1,chunk=7)
+        n = capture.n_cells
+        def load(a,b):
+            t = np.arange(a,b)
+            return np.sin(.37*np.arange(n)[:,None]+.11*t[None])+.01*t[None]
+        # Cell order follows load_source: z, y, x with x fastest; nearer the target (+x) is heard earlier
+        z,y,x = np.meshgrid(np.arange(4,6),np.arange(1,3),np.arange(2,5),indexing='ij')
+        cells = np.stack([x.ravel(),y.ravel(),z.ravel()],1)*.01
+        direction = np.array([40,1,5])*.01-cells.mean(0)
+        delays = np.rint((cells-cells.mean(0))@(direction/np.linalg.norm(direction))/343./1e-5).astype(int)
+        self.assertGreater(delays[2],delays[0])     # x=4 vs x=2 in the same row
+        self.assertEqual(capture.margin,abs(delays).max())
+        for start,length in ((50,40),(0,30),(3,1)):
+            expected = np.zeros(length)
+            for t in range(start,start+length):
+                for v in range(n):
+                    u = t+delays[v]
+                    if u >= 0:     # sources are silent before step 0
+                        expected[t-start] += load(u,u+1)[v,0]
+            np.testing.assert_allclose(capture.segment(load,start,length),expected,rtol=1e-5,atol=1e-5)
+        with self.assertRaises(ValueError):
+            capture.segment(lambda a,b:np.zeros((n+1,b-a)),10,5)
+
+    def test_pressure_bumps_src_replica(self):
+        shape = (12,11,10)
+        cfg = dict(peak_pa=.5,seed=57,rate_hz=100.,radius_cells=1.,duration_s=.004,src_replica=True)
+        bumps = PressureBumps(cfg,shape,.0001,.1)
+        plain = PressureBumps(dict(cfg,src_replica=False),shape,.0001,.1)
+        # Same schedule with or without replica
+        self.assertEqual([(e[0],list(e[1])) for e in bumps.events],[(e[0],list(e[1])) for e in plain.events])
+        mask = np.zeros(shape,dtype=bool)
+        bumps.add_to_mask(mask)
+        full = np.zeros((int(mask.sum()),1000),dtype=np.float32)
+        with self.assertRaises(ValueError):
+            bumps.add_to_source(full,0,1000)
+        calls = []
+        def segment(a,n):
+            calls.append((a,n))
+            return np.cos(.05*np.arange(a,a+n))
+        margin = 30
+        bumps.set_replica_source(segment,margin)
+        bumps.add_to_source(full,0,1000)
+        length = int(np.ceil(bumps.pulse_steps))
+        expected = np.zeros_like(full)
+        replayed = 0
+        for i,(start,rows,weights) in enumerate(bumps.rows):
+            self.assertAlmostEqual(abs(float(weights.sum())),cfg['peak_pa'],places=5)
+            source_start = bumps.replica_start(i)
+            if start-length-margin < 0:
+                self.assertIsNone(source_start)    # no history yet: silent event
+                continue
+            # Random earlier segment that ends, with margin, before the event starts
+            self.assertTrue(0 <= source_start <= start-length-margin)
+            hi = min(1000,start+length)
+            phase = (np.arange(start,hi)-start)/bumps.pulse_steps
+            pulse = np.sin(np.pi*phase)**2*np.cos(.05*np.arange(source_start,source_start+hi-start))
+            expected[rows,start:hi] += weights[:,None]*pulse.astype(np.float32)
+            replayed += 1
+        self.assertGreater(replayed,1)
+        np.testing.assert_allclose(full,expected,rtol=1e-5,atol=1e-8)
+        self.assertEqual(len(calls),len(set(calls)))    # each event's segment computed once
+        self.assertTrue(all(n == length for _,n in calls))
+        chunks = []
+        for lo,hi in ((0,19),(19,450),(450,1000)):
+            chunk = np.zeros((full.shape[0],hi-lo),dtype=np.float32)
+            bumps.add_to_source(chunk,lo,hi)
+            chunks.append(chunk)
+        np.testing.assert_array_equal(full,np.concatenate(chunks,axis=1))
+        with self.assertRaises(ValueError):
+            PressureBumps(dict(cfg,src_replica='yes'),shape,.0001,.1)
+
+        # The worker wires the capture to the actual sources
+        path = ROOT/'Generation/KWave/src/run_experiments.py'
+        mesh_mask = np.zeros(shape,dtype=bool)
+        mesh_mask[3:5,4:6,2:4] = True
+        bounds = dict(x=(3,5),y=(4,6),z=(2,4))
+        blade_rows = np.searchsorted(np.flatnonzero(mask.ravel(order='F')),np.flatnonzero(mesh_mask.ravel(order='F')))
+        capture = SourceCapture(bounds,(11,10,9),.001,.0001,delay_resolution=1)
+        def fake_load(source,a,b,*args):
+            return np.sin(.02*np.arange(a,b))[None]*np.arange(1,9,dtype=np.float32)[:,None]*source['gain']
+        sources = [{'type':'tiny','gain':1.},{'type':'tiny','gain':2.}]
+        buffer = bytearray(full.nbytes)
+        task_queue = Mock()
+        task_queue.get.side_effect = [(0,1000,sources),None]
+        task_queue.empty.return_value = True
+        worker_bumps = PressureBumps(cfg,shape,.0001,.1)
+        worker_bumps.add_to_mask(np.zeros(shape,dtype=bool))
+        scope = dict(np=np,SharedMemory=lambda **kw:SimpleNamespace(buf=buffer),load_source=fake_load,
+                     resource=SimpleNamespace(RUSAGE_SELF=0,getrusage=lambda _:SimpleNamespace(ru_maxrss=0)))
+        extract(path,{'worker_source'},scope)
+        scope['worker_source'](task_queue,Mock(),Mock(),'test',full.shape,np.float32,
+                               {'tiny':None},bounds,None,None,worker_bumps,blade_rows,capture)
+        reference = PressureBumps(cfg,shape,.0001,.1)
+        reference.add_to_mask(np.zeros(shape,dtype=bool))
+        reference.set_replica_source(lambda a,n:capture.segment(lambda u0,u1:3*fake_load({'gain':1.},u0,u1),a,n),
+                                     capture.margin)
+        expected = np.zeros_like(full)
+        expected[blade_rows] = fake_load({'gain':3.},0,1000)
+        reference.add_to_source(expected,0,1000)
+        self.assertTrue(np.any(expected[np.setdiff1d(np.arange(len(expected)),blade_rows)]))
+        np.testing.assert_allclose(np.ndarray(full.shape,np.float32,buffer),expected,rtol=1e-5,atol=1e-7)
 
     def test_pressure_bumps_hdf5_timestep_types(self):
         bumps = PressureBumps({},(1,1,1),1e-7,.3)

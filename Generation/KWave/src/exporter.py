@@ -4,13 +4,14 @@ import json
 import shutil
 import numpy as np
 from scipy.spatial.transform import Rotation
-import cv2 as cv
 from tqdm import tqdm
 import pickle
 import copy
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+EXPERIMENTS_ROOT = '/experiments'
 
 
 def export_statistics(result, output_dir, space_step, angle_bin=5):
@@ -119,17 +120,21 @@ def select_balanced(cells, positions, num_examples, rng):
 
 
 def export(experiment, mics, sensors_direction, angle_step, space_step, debug_file=None,
-           num_examples=None, angle_bin=5, seed=0):
+           num_examples=None, angle_bin=5, seed=0, export_dir='export', signal_source=None):
     # num_examples: number of examples to export, balanced over source azimuth/elevation (angle_bin cells) and
     # array positions; None exports every valid example.
-    exp_descr_path = os.path.join('/experiments', experiment, 'experiment.yml')
-    exp_output_path = os.path.join('/experiments', experiment, 'outputs')
+    # signal_source(result, exp_descr): mic signals instead of the simulation outputs - returns
+    # {(position, rotation): array (n_mics, n_steps)} for every exported example (e.g. Generation/Simple).
+    exp_descr_path = os.path.join(EXPERIMENTS_ROOT, experiment, 'experiment.yml')
+    exp_output_path = os.path.join(EXPERIMENTS_ROOT, experiment, 'outputs')
     assert os.path.exists(exp_descr_path), "Invalid experiment"
-    assert os.path.exists(exp_output_path), "Invalid experiment"
-    out_files = sorted([f.path for f in os.scandir(exp_output_path)])
-    assert len(out_files) > 0, "Invalid experiment"
+    out_files = []
+    if signal_source is None:
+        assert os.path.exists(exp_output_path), "Invalid experiment"
+        out_files = sorted([f.path for f in os.scandir(exp_output_path)])
+        assert len(out_files) > 0, "Invalid experiment"
     exp_descr = yaml.load(open(exp_descr_path), Loader=yaml.FullLoader)
-    export_path = os.path.join('/experiments', experiment, 'export')
+    export_path = os.path.join(EXPERIMENTS_ROOT, experiment, export_dir)
     exp_result_dir = os.path.join(export_path, 'compiled_values')
     exp_result_path = os.path.join(export_path, 'exported.pkl')
     if os.path.exists(export_path):
@@ -149,7 +154,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     mics_xz -= np.expand_dims(np.mean(mics_xz, axis=2), 2)
     result = {}
 
-    meshes_meta = [json.load(open(os.path.join('/experiments/input_mesh', source['type'], 'meta.json'))) for source in exp_descr['sources']]
+    meshes_meta = [json.load(open(os.path.join(EXPERIMENTS_ROOT, 'input_mesh', source['type'], 'meta.json'))) for source in exp_descr['sources']]
 
     def compute_source_directions(sensors_origin):
         source_directions = []
@@ -294,6 +299,15 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
     print("Filling with data...")
     result = {r: result[r] for r in result if len(result[r]) > 0}
     step_result = copy.deepcopy(result)
+    if signal_source is not None:
+        signals = signal_source(result, exp_descr)
+        n_steps = {s.shape[1] for s in signals.values()}
+        assert len(n_steps) == 1, "Signals of all examples must have the same length"
+        for step in tqdm(range(n_steps.pop()), position=0):
+            for position in result:
+                for rotation in result[position]:
+                    step_result[position][rotation]['mic_values'] = list(signals[(position, rotation)][:, step].astype(np.float32))
+            pickle.dump(step_result, open(os.path.join(exp_result_dir, f'{str(step).zfill(5)}.pkl'), 'wb'))
     for out_file_idx, out_file in tqdm(enumerate(out_files), position=0):
         # if out_file_idx > 4:
         #     continue
@@ -313,6 +327,7 @@ def export(experiment, mics, sensors_direction, angle_step, space_step, debug_fi
 
     print("Creating debug image.")
     if debug_file is not None:
+        import cv2 as cv
         text_coord = 5
         # Desired debug angles may be absent from the angle grid (depends on angle_step) - snap them to the closest
         # available ones, keeping them distinct. Angles closest to zero are snapped first, so zero stays the reference.
